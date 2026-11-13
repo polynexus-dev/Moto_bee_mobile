@@ -269,76 +269,111 @@
 //     return null;
 // }
 
-// utils/notifications.ts
-
-import * as Notifications from 'expo-notifications';
+import type * as NotificationsType from 'expo-notifications';
 import * as Device from 'expo-device';
 import { Platform } from 'react-native';
+import Constants, { ExecutionEnvironment } from 'expo-constants';
+
+export const isExpoGo =
+    Constants.executionEnvironment === ExecutionEnvironment.StoreClient ||
+    (Constants as any).appOwnership === 'expo';
+
+function getNotifications(): typeof NotificationsType | null {
+    if (isExpoGo) return null;
+    try {
+        return require('expo-notifications');
+    } catch {
+        return null;
+    }
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // FOREGROUND BEHAVIOUR — set once at module level
 // ─────────────────────────────────────────────────────────────────────────────
-Notifications.setNotificationHandler({
-    handleNotification: async () => ({
-        shouldShowAlert: true,   // legacy — required
-        shouldShowBanner: true,  // SDK 51+
-        shouldShowList: true,  // SDK 51+
-        shouldPlaySound: true,
-        shouldSetBadge: true,
-    }),
-});
+const NotificationsModule = getNotifications();
+if (NotificationsModule) {
+    try {
+        NotificationsModule.setNotificationHandler({
+            handleNotification: async () => ({
+                shouldShowAlert: true,   // legacy — required
+                shouldShowBanner: true,  // SDK 51+
+                shouldShowList: true,  // SDK 51+
+                shouldPlaySound: true,
+                shouldSetBadge: true,
+            }),
+        });
+    } catch (e) {
+        console.warn('[Notifications] setNotificationHandler skipped in Expo Go');
+    }
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ANDROID CHANNEL — required for Android 8+
 // ─────────────────────────────────────────────────────────────────────────────
 export async function setupAndroidChannel(): Promise<void> {
     if (Platform.OS !== 'android') return;
+    const Notif = getNotifications();
+    if (!Notif) return;
 
-    await Notifications.setNotificationChannelAsync('booking_updates', {
-        name: 'Booking Updates',
-        importance: Notifications.AndroidImportance.MAX,
-        vibrationPattern: [0, 250, 250, 250],
-        lightColor: '#FF6B35',
-        sound: 'default',
-        enableVibrate: true,
-        showBadge: true,
-        description: 'Notifications about your booking status',
-    });
+    try {
+        await Notif.setNotificationChannelAsync('booking_updates', {
+            name: 'Booking Updates',
+            importance: Notif.AndroidImportance.MAX,
+            vibrationPattern: [0, 250, 250, 250],
+            lightColor: '#FF6B35',
+            sound: 'default',
+            enableVibrate: true,
+            showBadge: true,
+            description: 'Notifications about your booking status',
+        });
+    } catch (e) {
+        console.warn('[Notifications] setupAndroidChannel failed:', e);
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // REQUEST OS PERMISSIONS
 // ─────────────────────────────────────────────────────────────────────────────
 export async function requestNotificationPermissions(): Promise<boolean> {
+    const Notif = getNotifications();
+    if (!Notif) {
+        console.warn('[Notifications] Push notifications are not supported in Expo Go. Use a development build.');
+        return false;
+    }
     if (!Device.isDevice) {
         console.warn('[Notifications] Push notifications require a physical device.');
         return false;
     }
 
-    const { status: existingStatus } = await Notifications.getPermissionsAsync();
-    let finalStatus = existingStatus;
+    try {
+        const { status: existingStatus } = await Notif.getPermissionsAsync();
+        let finalStatus = existingStatus;
 
-    if (existingStatus !== 'granted') {
-        const { status } = await Notifications.requestPermissionsAsync();
-        finalStatus = status;
-    }
+        if (existingStatus !== 'granted') {
+            const { status } = await Notif.requestPermissionsAsync();
+            finalStatus = status;
+        }
 
-    if (finalStatus !== 'granted') {
-        console.warn('[Notifications] Permission not granted:', finalStatus);
+        if (finalStatus !== 'granted') {
+            console.warn('[Notifications] Permission not granted:', finalStatus);
+            return false;
+        }
+
+        return true;
+    } catch (e) {
+        console.warn('[Notifications] requestNotificationPermissions failed:', e);
         return false;
     }
-
-    return true;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GET RAW FCM / APNs TOKEN — no EAS, no projectId, no firebase SDK needed
 // ─────────────────────────────────────────────────────────────────────────────
 export async function getDevicePushToken(): Promise<string | null> {
+    const Notif = getNotifications();
+    if (!Notif) return null;
     try {
-        const tokenData = await Notifications.getDevicePushTokenAsync();
-        // tokenData.type → 'android' | 'ios'
-        // tokenData.data → the actual FCM / APNs token string
+        const tokenData = await Notif.getDevicePushTokenAsync();
         console.log('[Notifications] Device token:', tokenData.data);
         return tokenData.data;
     } catch (error) {
@@ -353,13 +388,19 @@ export async function getDevicePushToken(): Promise<string | null> {
 // Returns a cleanup function — call it on unmount.
 // ─────────────────────────────────────────────────────────────────────────────
 export function listenForegroundNotifications(
-    onReceived?: (notification: Notifications.Notification) => void
+    onReceived?: (notification: NotificationsType.Notification) => void
 ): () => void {
-    const sub = Notifications.addNotificationReceivedListener((notification) => {
-        console.log('[Notifications] Foreground notification:', notification);
-        onReceived?.(notification);
-    });
-    return () => sub.remove();
+    const Notif = getNotifications();
+    if (!Notif) return () => { };
+    try {
+        const sub = Notif.addNotificationReceivedListener((notification) => {
+            console.log('[Notifications] Foreground notification:', notification);
+            onReceived?.(notification);
+        });
+        return () => sub.remove();
+    } catch {
+        return () => { };
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -370,37 +411,49 @@ export function listenForegroundNotifications(
 export function listenNotificationTaps(
     onTap: (data: Record<string, string>) => void
 ): () => void {
-    const sub = Notifications.addNotificationResponseReceivedListener((response) => {
-        console.log('[Notifications] Notification tapped:', response);
-        const data = response.notification.request.content.data as Record<string, string>;
+    const Notif = getNotifications();
+    if (!Notif) return () => { };
+    try {
+        const sub = Notif.addNotificationResponseReceivedListener((response) => {
+            console.log('[Notifications] Notification tapped:', response);
+            const data = response.notification.request.content.data as Record<string, string>;
 
-        // Guard against malformed deep links (e.g. exp://–/ from Expo Go)
-        const url = data?.url;
-        if (url && !url.startsWith('/')) {
-            console.warn('[Notifications] Blocked malformed deep link:', url);
-            return;
-        }
+            // Guard against malformed deep links (e.g. exp://–/ from Expo Go)
+            const url = data?.url;
+            if (url && !url.startsWith('/')) {
+                console.warn('[Notifications] Blocked malformed deep link:', url);
+                return;
+            }
 
-        if (data) onTap(data);
-    });
-    return () => sub.remove();
+            if (data) onTap(data);
+        });
+        return () => sub.remove();
+    } catch {
+        return () => { };
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // KILLED STATE CHECK — check once on cold start
 // ─────────────────────────────────────────────────────────────────────────────
 export async function checkInitialNotification(): Promise<Record<string, string> | null> {
-    const response = await Notifications.getLastNotificationResponseAsync();
-    if (!response) return null;
+    const Notif = getNotifications();
+    if (!Notif) return null;
+    try {
+        const response = await Notif.getLastNotificationResponseAsync();
+        if (!response) return null;
 
-    console.log('[Notifications] App opened from killed state via notification.');
-    const data = response.notification.request.content.data as Record<string, string>;
+        console.log('[Notifications] App opened from killed state via notification.');
+        const data = response.notification.request.content.data as Record<string, string>;
 
-    const url = data?.url;
-    if (url && !url.startsWith('/')) {
-        console.warn('[Notifications] Blocked malformed initial deep link:', url);
+        const url = data?.url;
+        if (url && !url.startsWith('/')) {
+            console.warn('[Notifications] Blocked malformed initial deep link:', url);
+            return null;
+        }
+
+        return data ?? null;
+    } catch {
         return null;
     }
-
-    return data ?? null;
 }

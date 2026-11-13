@@ -52,23 +52,23 @@ export async function addBooking(booking: Booking): Promise<void> {
 export async function getBookingsByCustomer(customerUid: string): Promise<Booking[]> {
     const bookings = await getAllBookings();
     return bookings
-        .filter((b) => b.customerUid === customerUid)
-        .sort((a, b) => b.createdAt - a.createdAt);
+        .filter((b) => b.customer === customerUid)
+        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 }
 
 export async function getBookingsByGarage(garageId: string): Promise<Booking[]> {
     const bookings = await getAllBookings();
     return bookings
-        .filter((b) => b.garageId === garageId)
-        .sort((a, b) => b.createdAt - a.createdAt);
+        .filter((b) => b.garage === garageId)
+        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 }
 
 export async function updateBookingStatus(
-    bookingId: string,
+    bookingId: string | number,
     status: Booking['status']
 ): Promise<void> {
     const bookings = await getAllBookings();
-    const idx = bookings.findIndex((b) => b.id === bookingId);
+    const idx = bookings.findIndex((b) => String(b.id) === String(bookingId));
     if (idx >= 0) {
         bookings[idx].status = status;
         await AsyncStorage.setItem(BOOKINGS_KEY, JSON.stringify(bookings));
@@ -77,12 +77,12 @@ export async function updateBookingStatus(
 
 // Add this function at the bottom of utils/storage.ts
 export async function updateBookingFields(
-    bookingId: string,
+    bookingId: string | number,
     fields: Partial<Booking>
 ): Promise<void> {
     const raw = await AsyncStorage.getItem(BOOKINGS_KEY);
     const bookings: Booking[] = raw ? JSON.parse(raw) : [];
-    const idx = bookings.findIndex((b) => b.id === bookingId);
+    const idx = bookings.findIndex((b) => String(b.id) === String(bookingId));
     if (idx >= 0) {
         bookings[idx] = { ...bookings[idx], ...fields };
         await AsyncStorage.setItem(BOOKINGS_KEY, JSON.stringify(bookings));
@@ -126,4 +126,22 @@ export async function saveGarageById(garage: Garage): Promise<void> {
     if (idx >= 0) all[idx] = garage;
     else all.push(garage);
     await AsyncStorage.setItem('@bikeservice_garages', JSON.stringify(all));
+}
+
+// ─── Garage Images ───────────────────────────────────────────────────────────
+export async function getGarageStoredImages(garageId: string | number): Promise<string[]> {
+    try {
+        const raw = await AsyncStorage.getItem(`@garage_images_${garageId}`);
+        return raw ? JSON.parse(raw) : [];
+    } catch {
+        return [];
+    }
+}
+
+export async function saveGarageStoredImages(garageId: string | number, images: string[]): Promise<void> {
+    try {
+        await AsyncStorage.setItem(`@garage_images_${garageId}`, JSON.stringify(images));
+    } catch (e) {
+        console.warn('Failed to save garage images to storage', e);
+    }
 }

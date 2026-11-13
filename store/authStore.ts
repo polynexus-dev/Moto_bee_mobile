@@ -1,10 +1,14 @@
-// // store/authStore.ts
+// store/authStore.ts
 
 import { AppUser } from '../types';
-import * as SecureStore from 'expo-secure-store';
 import { create } from 'zustand';
-// import { teardownPushNotifications, setupPushNotifications } from '../utils/notifications';
 import { teardownPushNotifications } from '../utils/services/notificationService';
+import {
+    getAuthToken,
+    getStoredUser,
+    clearAuthData,
+    updateStoredUser,
+} from '../utils/services/authService';
 
 interface AuthState {
     user: AppUser | null;
@@ -19,41 +23,38 @@ interface AuthState {
 export const useAuthStore = create<AuthState>((set, get) => ({
     user: null,
     token: null,
-    isHydrated: false,   // ← starts false
+    isHydrated: false,
 
     hydrate: async () => {
         try {
-            const token = await SecureStore.getItemAsync('token');
-            const userRaw = await SecureStore.getItemAsync('user');
-            if (token && userRaw) {
-                set({ token, user: JSON.parse(userRaw) });
+            const token = await getAuthToken();
+            const user = await getStoredUser();
+            if (token && user) {
+                set({ token, user });
+            } else {
+                set({ token: null, user: null });
             }
         } catch (e) {
-            // non-critical — clear state and continue
             set({ token: null, user: null });
         } finally {
-            // ✅ ALWAYS set isHydrated true — even on error
-            // Without this, the app loads forever
             set({ isHydrated: true });
         }
     },
 
-    setAuth: async (token, user) => {
-        await SecureStore.setItemAsync('token', token);
-        await SecureStore.setItemAsync('user', JSON.stringify(user));
+    setAuth: (token, user) => {
         set({ token, user });
     },
 
     logout: async () => {
         teardownPushNotifications();
-        await SecureStore.deleteItemAsync('token');
-        await SecureStore.deleteItemAsync('user');
+        await clearAuthData();
         set({ token: null, user: null });
     },
 
     updateUser: async (partial) => {
-        const updated = { ...get().user!, ...partial };
-        await SecureStore.setItemAsync('user', JSON.stringify(updated));
-        set({ user: updated });
+        const updated = await updateStoredUser(partial);
+        if (updated) {
+            set({ user: updated });
+        }
     },
-}));
+}));

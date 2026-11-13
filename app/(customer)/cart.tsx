@@ -6,6 +6,7 @@ import {
     ActivityIndicator, Alert,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import * as Location from 'expo-location';
 import { useCart } from '../../context/CartContext';
@@ -21,6 +22,7 @@ const TYPE_META = {
 } as const;
 
 export default function CartScreen() {
+    const insets = useSafeAreaInsets();
     const router = useRouter();
     const { items, removeItem, clearCart, loading } = useCart();
     const { user } = useAuthStore();
@@ -127,7 +129,7 @@ export default function CartScreen() {
     if (items.length === 0) {
         return (
             <View style={styles.container}>
-                <View style={styles.header}>
+                <View style={[styles.header, { paddingTop: Math.max(insets.top + Spacing.xs, Spacing.md) }]}>
                     <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
                         <Ionicons name="chevron-back" size={22} color={Colors.textPrimary} />
                     </TouchableOpacity>
@@ -156,7 +158,7 @@ export default function CartScreen() {
         <View style={styles.container}>
 
             {/* ── Header ───────────────────────────────────────────────────── */}
-            <View style={styles.header}>
+            <View style={[styles.header, { paddingTop: Math.max(insets.top + Spacing.xs, Spacing.md) }]}>
                 <TouchableOpacity
                     style={styles.backBtn}
                     onPress={() => router.push('/(customer)/book-slot' as any)}
@@ -199,6 +201,18 @@ export default function CartScreen() {
                                     <Ionicons name="storefront-outline" size={14} color={Colors.primary} />
                                 </View>
                                 <Text style={styles.garageName} numberOfLines={1}>{item.garageName}</Text>
+                                <TouchableOpacity
+                                    style={styles.editBtn}
+                                    onPress={() =>
+                                        router.push({
+                                            pathname: '/(customer)/garages/book-slot' as any,
+                                            params: { id: item.garageId, cartId: item.cartId },
+                                        })
+                                    }
+                                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                                >
+                                    <Ionicons name="create-outline" size={22} color={Colors.primary} />
+                                </TouchableOpacity>
                                 <TouchableOpacity
                                     style={styles.removeBtn}
                                     onPress={() =>
@@ -310,7 +324,7 @@ export default function CartScreen() {
                         </View>
                         <TouchableOpacity
                             style={styles.manageBtn}
-                            onPress={() => router.push('/(customer)/location' as any)}
+                            onPress={() => router.push('/(customer)/account/location' as any)}
                             activeOpacity={0.8}
                         >
                             <Ionicons name="settings-outline" size={13} color={Colors.primary} />
@@ -371,7 +385,7 @@ export default function CartScreen() {
                     ) : (
                         <TouchableOpacity
                             style={styles.noLocationRow}
-                            onPress={() => router.push('/(customer)/location' as any)}
+                            onPress={() => router.push('/(customer)/account/location' as any)}
                             activeOpacity={0.8}
                         >
                             <Ionicons name="location-outline" size={18} color={Colors.textTertiary} />
@@ -417,7 +431,7 @@ export default function CartScreen() {
                                 {/* Add new shortcut */}
                                 <TouchableOpacity
                                     style={styles.profileChipAdd}
-                                    onPress={() => router.push('/(customer)/location' as any)}
+                                    onPress={() => router.push('/(customer)/account/location' as any)}
                                     activeOpacity={0.75}
                                 >
                                     <Ionicons name="add" size={13} color={Colors.primary} />
@@ -508,7 +522,7 @@ const styles = StyleSheet.create({
     header: {
         flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
         backgroundColor: Colors.surface, paddingHorizontal: Spacing.md,
-        paddingTop: 56, paddingBottom: Spacing.md,
+        paddingBottom: Spacing.md,
         borderBottomWidth: 1, borderBottomColor: Colors.borderLight,
     },
     backBtn: { width: 36, height: 36, borderRadius: Radius.sm, backgroundColor: Colors.bg, alignItems: 'center', justifyContent: 'center' },
@@ -524,6 +538,7 @@ const styles = StyleSheet.create({
     cardIndexText: { fontSize: 11, color: '#fff', fontWeight: '800' },
     garageBadge: { width: 28, height: 28, borderRadius: Radius.sm, backgroundColor: Colors.primary + '18', alignItems: 'center', justifyContent: 'center' },
     garageName: { ...Typography.h3, color: Colors.textPrimary, flex: 1 },
+    editBtn: { padding: 2, marginRight: Spacing.sm },
     removeBtn: { padding: 2 },
     cardDivider: { height: 1, backgroundColor: Colors.borderLight },
 

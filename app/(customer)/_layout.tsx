@@ -146,6 +146,7 @@ export default function CustomerLayout() {
 
             {/* ── Hidden screens (no tab bar entry) ─────────── */}
             <Tabs.Screen name="checkout" options={{ href: null }} />
+            <Tabs.Screen name="washing" options={{ href: null }} />
             {/* <Tabs.Screen name="location" options={{ href: null }} /> */}
             {/* <Tabs.Screen name="garage-detail" options={{ href: null }} /> */}
             {/* <Tabs.Screen name="book-slot" options={{ href: null }} /> */}

@@ -1,17 +1,13 @@
-// utils/services/notificationService.ts
-
 import api from '../api';
 import {
     setupAndroidChannel,
     requestNotificationPermissions,
     getDevicePushToken,
+    isExpoGo,
 } from '../notifications';
-import * as Notifications from 'expo-notifications';
+import type * as NotificationsType from 'expo-notifications';
 
-// ─────────────────────────────────────────────────────────────────────────────
-// TOKEN REFRESH SUBSCRIPTION — stored so it can be removed on logout
-// ─────────────────────────────────────────────────────────────────────────────
-let _tokenRefreshSub: Notifications.Subscription | null = null;
+let _tokenRefreshSub: NotificationsType.Subscription | null = null;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SAVE TOKEN TO DJANGO BACKEND
@@ -35,6 +31,7 @@ async function saveTokenToBackend(token: string): Promise<void> {
 // permissions → android channel → token → backend save → refresh listener
 // ─────────────────────────────────────────────────────────────────────────────
 export async function setupPushNotifications(): Promise<string | null> {
+    if (isExpoGo) return null;
     const permitted = await requestNotificationPermissions();
     if (!permitted) return null;
 
@@ -47,10 +44,15 @@ export async function setupPushNotifications(): Promise<string | null> {
 
     // Remove old listener before attaching a new one (e.g. after re-login)
     _tokenRefreshSub?.remove();
-    _tokenRefreshSub = Notifications.addPushTokenListener(async (newToken) => {
-        console.log('[Notifications] Token refreshed:', newToken.data);
-        await saveTokenToBackend(newToken.data);
-    });
+    try {
+        const Notif = require('expo-notifications');
+        _tokenRefreshSub = Notif.addPushTokenListener(async (newToken: any) => {
+            console.log('[Notifications] Token refreshed:', newToken.data);
+            await saveTokenToBackend(newToken.data);
+        });
+    } catch {
+        // Guard for Expo Go
+    }
 
     return token;
 }

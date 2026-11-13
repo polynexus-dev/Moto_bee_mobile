@@ -4,11 +4,13 @@ import {
     TouchableOpacity, Share, Clipboard,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useAuthStore } from '../../../store/authStore';
 import { Colors, Typography, Spacing, Radius, Shadow } from '../../../constants/theme';
 
 export default function ReferEarnScreen() {
+    const insets = useSafeAreaInsets();
     const router = useRouter();
     const user = useAuthStore((s) => s.user);
     const [copied, setCopied] = useState(false);
@@ -41,7 +43,7 @@ export default function ReferEarnScreen() {
     return (
         <View style={styles.container}>
             {/* Header */}
-            <View style={styles.header}>
+            <View style={[styles.header, { paddingTop: Math.max(insets.top + Spacing.xs, Spacing.md) }]}>
                 <TouchableOpacity style={styles.backBtn} onPress={() => router.push("/(customer)/account")}>
                     <Ionicons name="chevron-back" size={22} color={Colors.textPrimary} />
                 </TouchableOpacity>
@@ -155,7 +157,7 @@ const styles = StyleSheet.create({
     header: {
         flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
         backgroundColor: Colors.surface, paddingHorizontal: Spacing.md,
-        paddingTop: 56, paddingBottom: Spacing.md,
+        paddingBottom: Spacing.md,
         borderBottomWidth: 1, borderBottomColor: Colors.borderLight,
     },
     backBtn: { width: 36, height: 36, borderRadius: Radius.sm, backgroundColor: Colors.bg, alignItems: 'center', justifyContent: 'center' },

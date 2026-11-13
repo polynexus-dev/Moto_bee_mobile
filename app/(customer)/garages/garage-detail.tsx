@@ -1,13 +1,13 @@
-// app/(customer)/garage-details.tsx
-
 import React, { useEffect, useState } from 'react';
 import {
     View, Text, StyleSheet, ScrollView,
-    TouchableOpacity, ActivityIndicator,
+    TouchableOpacity, ActivityIndicator, Image, Modal, Dimensions
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { getGarageById } from '../../../utils/services/garageService';
+import { getGarageStoredImages } from '../../../utils/storage';
 import { Garage } from '../../../types';
 import { Colors, Typography, Spacing, Radius, Shadow } from '../../../constants/theme';
 import Toast from '../../../components/Toast';
@@ -96,11 +96,14 @@ const infoRowStyles = StyleSheet.create({
 
 // ── Main Screen ───────────────────────────────────────────────────────────────
 export default function GarageDetailsScreen() {
+    const insets = useSafeAreaInsets();
     const { id } = useLocalSearchParams<{ id: string }>();
     const router = useRouter();
     const { toast, showToast, hideToast } = useToast();
 
     const [garage, setGarage] = useState<Garage | null>(null);
+    const [images, setImages] = useState<string[]>([]);
+    const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
     const [tab, setTab] = useState<VehicleTab>('bike');
 
@@ -108,7 +111,16 @@ export default function GarageDetailsScreen() {
         if (!id) return;
         setLoading(true);
         getGarageById(id)
-            .then(setGarage)
+            .then(async (g) => {
+                setGarage(g);
+                const stored = await getGarageStoredImages(g.id);
+                const combined = Array.from(new Set([
+                    ...(g.images || []),
+                    ...(g.image ? [g.image] : []),
+                    ...stored,
+                ])).filter(Boolean);
+                setImages(combined);
+            })
             .catch((e: any) => showToast(e?.response?.data?.detail ?? 'Failed to load garage.', 'error'))
             .finally(() => setLoading(false));
     }, [id]);
@@ -140,8 +152,7 @@ export default function GarageDetailsScreen() {
             <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
 
                 {/* ── Header ──────────────────────────────────────────────── */}
-                <View style={styles.header}>
-                    {/* <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}> */}
+                <View style={[styles.header, { paddingTop: Math.max(insets.top + Spacing.xs, Spacing.md) }]}>
                     <TouchableOpacity
                         style={styles.backBtn}
                         onPress={() => {
@@ -155,8 +166,6 @@ export default function GarageDetailsScreen() {
                         <Ionicons name="chevron-back" size={22} color={Colors.textPrimary} />
                     </TouchableOpacity>
 
-                    {/* <BackButton fallback="/(customer)" /> */}
-
                     <View style={styles.headerCenter}>
                         <Text style={styles.headerTitle} numberOfLines={1}>{garage.name}</Text>
                         <Text style={styles.headerSub}>{'Garage Details'}</Text>
@@ -166,9 +175,13 @@ export default function GarageDetailsScreen() {
 
                 {/* ── Hero card ────────────────────────────────────────────── */}
                 <View style={styles.heroCard}>
-                    <View style={styles.heroAvatar}>
-                        <Ionicons name="storefront" size={32} color={Colors.primary} />
-                    </View>
+                    {images.length > 0 ? (
+                        <Image source={{ uri: images[0] }} style={styles.heroAvatarImage} />
+                    ) : (
+                        <View style={styles.heroAvatar}>
+                            <Ionicons name="storefront" size={32} color={Colors.primary} />
+                        </View>
+                    )}
                     <View style={styles.heroInfo}>
                         <Text style={styles.heroName}>{garage.name}</Text>
                         <Text style={styles.heroAddress} numberOfLines={2}>{garage.address || 'Address not set'}</Text>
@@ -186,6 +199,25 @@ export default function GarageDetailsScreen() {
                         </View>
                     </View>
                 </View>
+
+                {/* ── Photos Gallery (if any) ──────────────────────────────── */}
+                {images.length > 0 && (
+                    <View style={styles.card}>
+                        <Text style={styles.cardTitle}>{'GARAGE PHOTOS (' + String(images.length) + ')'}</Text>
+                        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingVertical: 4 }}>
+                            {images.map((uri, idx) => (
+                                <TouchableOpacity
+                                    key={`${uri}_${idx}`}
+                                    onPress={() => setSelectedPhoto(uri)}
+                                    activeOpacity={0.8}
+                                    style={{ width: 120, height: 85, borderRadius: Radius.md, overflow: 'hidden', borderWidth: 1, borderColor: Colors.borderLight }}
+                                >
+                                    <Image source={{ uri }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
+                                </TouchableOpacity>
+                            ))}
+                        </ScrollView>
+                    </View>
+                )}
 
                 {/* ── Garage info ──────────────────────────────────────────── */}
                 <View style={styles.card}>
@@ -325,7 +357,7 @@ const styles = StyleSheet.create({
     errorWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: Spacing.sm },
     errorText: { ...Typography.h3, color: Colors.error },
 
-    header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: Colors.surface, paddingHorizontal: Spacing.md, paddingTop: 56, paddingBottom: Spacing.md, borderBottomWidth: 1, borderBottomColor: Colors.borderLight },
+    header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: Colors.surface, paddingHorizontal: Spacing.md, paddingBottom: Spacing.md, borderBottomWidth: 1, borderBottomColor: Colors.borderLight },
     backBtn: { width: 36, height: 36, borderRadius: Radius.sm, backgroundColor: Colors.bg, alignItems: 'center', justifyContent: 'center' },
     headerCenter: { flex: 1, alignItems: 'center' },
     headerTitle: { ...Typography.h2, color: Colors.textPrimary },
@@ -335,6 +367,7 @@ const styles = StyleSheet.create({
 
     heroCard: { backgroundColor: Colors.surface, margin: Spacing.md, borderRadius: Radius.lg, padding: Spacing.md, flexDirection: 'row', gap: Spacing.md, borderWidth: 1, borderColor: Colors.border, ...Shadow.sm },
     heroAvatar: { width: 64, height: 64, borderRadius: Radius.lg, backgroundColor: Colors.primaryLight, alignItems: 'center', justifyContent: 'center' },
+    heroAvatarImage: { width: 64, height: 64, borderRadius: Radius.lg, borderWidth: 1, borderColor: Colors.borderLight },
     heroInfo: { flex: 1 },
     heroName: { ...Typography.h2, color: Colors.textPrimary },
     heroAddress: { ...Typography.body, color: Colors.textSecondary, marginTop: 3 },

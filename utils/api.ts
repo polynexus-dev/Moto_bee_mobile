@@ -89,6 +89,10 @@ api.interceptors.response.use(
             await SecureStore.deleteItemAsync('access_token');
             await SecureStore.deleteItemAsync('refresh_token');
             await SecureStore.deleteItemAsync('auth_user');
+            try {
+                const { useAuthStore } = require('../store/authStore');
+                useAuthStore.getState().logout();
+            } catch {}
             return Promise.reject(refreshError);
         } finally {
             isRefreshing = false;

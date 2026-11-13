@@ -6,6 +6,7 @@ import {
     TouchableOpacity, LayoutAnimation,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Colors, Typography, Spacing, Radius, Shadow } from '../../../constants/theme';
 
@@ -79,6 +80,7 @@ const SECTIONS = [
 ];
 
 export default function PrivacyPolicyScreen() {
+    const insets = useSafeAreaInsets();
     const router = useRouter();
     const [expanded, setExpanded] = useState<string | null>('01');
 
@@ -91,8 +93,8 @@ export default function PrivacyPolicyScreen() {
         <View style={styles.root}>
 
             {/* ── Header ──────────────────────────────────────────────────────── */}
-            <View style={styles.header}>
-                <TouchableOpacity style={styles.backBtn} onPress={() => router.push("/(customer)/about")}>
+            <View style={[styles.header, { paddingTop: Math.max(insets.top + Spacing.xs, Spacing.md) }]}>
+                <TouchableOpacity style={styles.backBtn} onPress={() => router.push("/(customer)/account/about")}>
                     <Ionicons name="chevron-back" size={22} color={Colors.textPrimary} />
                 </TouchableOpacity>
                 <View style={styles.headerCenter}>
@@ -156,7 +158,7 @@ const styles = StyleSheet.create({
     header: {
         flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
         backgroundColor: Colors.surface, paddingHorizontal: Spacing.md,
-        paddingTop: 56, paddingBottom: Spacing.md,
+        paddingBottom: Spacing.md,
         borderBottomWidth: 1, borderBottomColor: Colors.borderLight,
     },
     backBtn: { width: 36, height: 36, borderRadius: Radius.sm, backgroundColor: Colors.bg, alignItems: 'center', justifyContent: 'center' },

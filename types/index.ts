@@ -36,6 +36,7 @@ export interface GarageServices {
 // }
 export type Garage = {
     id: string;
+    ownerUid?: string;
     name: string;
     address: string;
     phone: string;
@@ -51,6 +52,8 @@ export type Garage = {
         scooty: Record<string, number>;
     };
     schedule?: DaySchedule[];   // ← comes nested from Django
+    images?: string[];          // Array of garage photo URLs/URIs
+    image?: string;            // Primary garage cover photo URL/URI
 };
 
 // ─── Booking status flow ───────────────────────────────────────────────────

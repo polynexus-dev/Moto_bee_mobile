@@ -5,6 +5,7 @@ import {
     Modal, Animated, Pressable
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Location from 'expo-location';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useAuthStore } from '../../store/authStore';
@@ -112,6 +113,7 @@ const oStyles = StyleSheet.create({
 
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 export default function HomeScreen() {
+    const insets = useSafeAreaInsets();
     const user = useAuthStore((s) => s.user);
     const router = useRouter();
 
@@ -192,7 +194,7 @@ export default function HomeScreen() {
                 keyboardShouldPersistTaps="handled"
             >
                 {/* ── Header ─────────────────────────────────────────────── */}
-                <View style={styles.header}>
+                <View style={[styles.header, { paddingTop: Math.max(insets.top + Spacing.xs, Spacing.md) }]}>
                     <View>
                         <Text style={styles.greetSub}>Good day</Text>
                         <Text style={styles.greetName}>{user?.name?.split(' ')[0]}</Text>
@@ -217,7 +219,7 @@ export default function HomeScreen() {
                     {/* Vehicles shortcut chip */}
                     <TouchableOpacity
                         style={styles.vehicleChip}
-                        onPress={() => router.push('/(customer)/my-vehicles' as any)}
+                        onPress={() => router.push('/(customer)/account/my-vehicles' as any)}
                     >
                         <Ionicons name="bicycle-outline" size={15} color={Colors.primary} />
                         <Text style={styles.vehicleChipText}>My Vehicles</Text>
@@ -247,7 +249,11 @@ export default function HomeScreen() {
                                 <TouchableOpacity
                                     key={s}
                                     style={styles.suggestionRow}
-                                    onPress={() => { setSearchQuery(s); setSuggestions([]); router.push('/(customer)' as any); }}
+                                    onPress={() => {
+                                        setSearchQuery(s);
+                                        setSuggestions([]);
+                                        router.push({ pathname: '/(customer)/garages', params: { service: s } } as any);
+                                    }}
                                 >
                                     <Ionicons name="build-outline" size={15} color={Colors.textTertiary} />
                                     <Text style={styles.suggestionText}>{s}</Text>
@@ -261,7 +267,7 @@ export default function HomeScreen() {
                 <View style={styles.section}>
                     <View style={styles.sectionRow}>
                         <Text style={styles.sectionTitle}>Offers & Deals</Text>
-                        <TouchableOpacity onPress={() => router.push('/(customer)/account/location')}><Text style={styles.sectionLink}>View all</Text></TouchableOpacity>
+                        <TouchableOpacity onPress={() => router.push('/(customer)/garages' as any)}><Text style={styles.sectionLink}>View all</Text></TouchableOpacity>
                     </View>
                     <OfferSlider />
                 </View>
@@ -272,7 +278,7 @@ export default function HomeScreen() {
                     <View style={styles.servicesRow}>
                         <TouchableOpacity
                             style={[styles.serviceCard, { backgroundColor: Colors.primary }]}
-                            onPress={() => router.push('/(customer)' as any)}
+                            onPress={() => router.push('/(customer)/garages' as any)}
                             activeOpacity={0.88}
                         >
                             <View style={styles.serviceCardIcon}>
@@ -287,6 +293,7 @@ export default function HomeScreen() {
 
                         <TouchableOpacity
                             style={[styles.serviceCard, { backgroundColor: '#1D4ED8' }]}
+                            onPress={() => router.push('/(customer)/washing' as any)}
                             activeOpacity={0.88}
                         >
                             <View style={styles.serviceCardIcon}>
@@ -304,7 +311,7 @@ export default function HomeScreen() {
                 {/* ── CTA Banner ─────────────────────────────────────────── */}
                 <TouchableOpacity
                     style={styles.ctaBanner}
-                    onPress={() => router.push('/(customer)' as any)}
+                    onPress={() => router.push('/(customer)/garages' as any)}
                     activeOpacity={0.9}
                 >
                     <View style={styles.ctaLeft}>
@@ -325,13 +332,16 @@ export default function HomeScreen() {
                 <View style={styles.section}>
                     <View style={styles.sectionRow}>
                         <Text style={styles.sectionTitle}>Quick Services</Text>
-                        <TouchableOpacity><Text style={styles.sectionLink}>View all</Text></TouchableOpacity>
+                        <TouchableOpacity onPress={() => router.push('/(customer)/garages' as any)}>
+                            <Text style={styles.sectionLink}>View all</Text>
+                        </TouchableOpacity>
                     </View>
                     <View style={styles.quickGrid}>
                         {QUICK_SERVICES.map((s) => (
                             <TouchableOpacity
                                 key={s.id}
                                 style={[styles.quickBlock, { backgroundColor: s.bg, width: ITEM_W }]}
+                                onPress={() => router.push({ pathname: '/(customer)/garages', params: { service: s.label } } as any)}
                                 activeOpacity={0.85}
                             >
                                 <View style={[styles.quickIconBox, { backgroundColor: s.color + '20' }]}>
@@ -410,7 +420,7 @@ const styles = StyleSheet.create({
     header: {
         flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
         backgroundColor: Colors.surface, paddingHorizontal: Spacing.md,
-        paddingTop: 56, paddingBottom: Spacing.lg,
+        paddingBottom: Spacing.lg,
         borderBottomWidth: 1, borderBottomColor: Colors.borderLight,
     },
     greetSub: { ...Typography.caption, color: Colors.textTertiary, textTransform: 'uppercase', letterSpacing: 0.8 },

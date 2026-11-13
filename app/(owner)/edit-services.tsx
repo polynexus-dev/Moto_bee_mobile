@@ -5,6 +5,7 @@ import {
     Platform,
 } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { getMyGarage, updateGarageServicesWithPricing } from '../../utils/services/garageService';
 import { Colors, Typography, Spacing, Radius, Shadow } from '../../constants/theme';
@@ -13,20 +14,128 @@ import { useToast } from '../../hooks/useToast';
 
 // ── Catalogues ────────────────────────────────────────────────────────────────
 const BIKE_CATALOGUE = [
-    'Oil Change', 'Full Service', 'Chain & Sprocket', 'Brake Adjustment',
-    'Air Filter Clean', 'Engine Tune-up', 'Carburetor Clean', 'Clutch Repair',
-    'Gear Adjustment', 'Spark Plug', 'Wheel Alignment', 'Suspension Check',
-    'Battery Check', 'Battery Replacement', 'Headlight Fix', 'Body Work',
-    'Coolant Flush', 'Tyre Puncture Fix', 'Nitrogen Fill', 'Foam Wash',
+    'Brake Cables',
+    'Chain Replacement',
+    'Chain Sprocket Kit Replacement',
+    'Clutch Repair',
+    'Suspension & Shockups',
+    'Front Shockups Repair',
+    'Rear Shockups Repair (Only Replacement)',
+    'Gear Repair',
+    'Engine Repair',
+    'Disc Brake Pads',
+    'Brake Shoes',
+    'Speedo Meter (New)',
+    'Tachometer (New)',
+    'Head Light',
+    'Tail Light',
+    'Indicator',
+    'Battery',
+    'Horn',
+    'Carborator',
+    'RHS Switch',
+    'LHS Switch',
+    'Ignition Switch',
+    'Throttle Body',
+    'Brake Fluid Change',
+    'Brake Master Cylinder',
+    'Accelerator cable',
+    'Spark Plug',
+    'Only Servicing',
+    'Servicing & Oil Change',
 ];
 
 const SCOOTY_CATALOGUE = [
-    'Belt Change', 'CVT Service', 'Oil Change', 'Full Service',
-    'Brake Adjustment', 'Air Filter Clean', 'Spark Plug', 'Battery Check',
-    'Battery Replacement', 'Tyre Puncture Fix', 'Nitrogen Fill',
-    'Body Work', 'Headlight Fix', 'Suspension Check', 'Wheel Alignment',
-    'Foam Wash', 'Coolant Flush', 'Engine Tune-up', 'Fuel Injector Clean',
+    'Brake Cables',
+    'Chain Replacement',
+    'Chain & Sprocket Kit Replacement',
+    'Clutch Repair',
+    'Suspension & Shockups',
+    'Front Shockups Repair',
+    'Rear Shockups (Only New)',
+    'Gear Box Repair',
+    'Engine Repair',
+    'Disc Brake Pads',
+    'Brake Shoes',
+    'Speedo Meter',
+    'Head Light',
+    'Tail Light',
+    'Indicator',
+    'Battery Change',
+    'Horn',
+    'Carborator',
+    'RHS Switch',
+    'LHS Switch',
+    'Ignition Switch',
+    'Throttle Body',
+    'Brake Fluid Change',
+    'Brake Master Cylinder',
+    'Accelerator cable',
+    'Spark Plug',
+    'Only Servicing',
+    'Servicing & Oil Change',
 ];
+
+const DEFAULT_BIKE_PRICES: Record<string, number> = {
+    'Brake Cables': 200,
+    'Chain Sprocket Kit Replacement': 900,
+    'Clutch Repair': 200,
+    'Suspension & Shockups': 600,
+    'Front Shockups Repair': 300,
+    'Rear Shockups Repair (Only Replacement)': 2000,
+    'Gear Repair': 2700,
+    'Engine Repair': 1000,
+    'Disc Brake Pads': 200,
+    'Brake Shoes': 250,
+    'Speedo Meter (New)': 700,
+    'Tachometer (New)': 800,
+    'Head Light': 150,
+    'Tail Light': 150,
+    'Indicator': 150,
+    'Battery': 900,
+    'Horn': 350,
+    'Carborator': 200,
+    'RHS Switch': 150,
+    'LHS Switch': 150,
+    'Ignition Switch': 150,
+    'Throttle Body': 600,
+    'Brake Fluid Change': 150,
+    'Brake Master Cylinder': 150,
+    'Accelerator cable': 250,
+    'Spark Plug': 250,
+    'Only Servicing': 350,
+    'Servicing & Oil Change': 600,
+};
+
+const DEFAULT_SCOOTY_PRICES: Record<string, number> = {
+    'Brake Cables': 150,
+    'Chain & Sprocket Kit Replacement': 200,
+    'Clutch Repair': 200,
+    'Suspension & Shockups': 600,
+    'Front Shockups Repair': 150,
+    'Rear Shockups (Only New)': 2000,
+    'Gear Box Repair': 250,
+    'Engine Repair': 1100,
+    'Disc Brake Pads': 200,
+    'Brake Shoes': 300,
+    'Speedo Meter': 700,
+    'Head Light': 100,
+    'Tail Light': 70,
+    'Indicator': 200,
+    'Battery Change': 900,
+    'Horn': 350,
+    'Carborator': 150,
+    'RHS Switch': 100,
+    'LHS Switch': 100,
+    'Ignition Switch': 150,
+    'Throttle Body': 400,
+    'Brake Fluid Change': 150,
+    'Brake Master Cylinder': 150,
+    'Accelerator cable': 200,
+    'Spark Plug': 250,
+    'Only Servicing': 300,
+    'Servicing & Oil Change': 550,
+};
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 type Tab = 'bike' | 'scooty';
@@ -43,12 +152,15 @@ function buildMap(
     catalogue: string[],
     enabled: string[],
     prices: Record<string, number>,
+    isBike: boolean = true,
 ): ServicesMap {
     const map: ServicesMap = {};
+    const defaultPrices = isBike ? DEFAULT_BIKE_PRICES : DEFAULT_SCOOTY_PRICES;
     catalogue.forEach((name) => {
+        const p = prices?.[name] ?? defaultPrices[name];
         map[name] = {
             enabled: enabled.includes(name),
-            price: prices?.[name] != null ? String(prices[name]) : '',
+            price: p != null ? String(p) : '',
         };
     });
     return map;
@@ -219,6 +331,7 @@ const completeStyles = StyleSheet.create({
 
 // ── Main Screen ───────────────────────────────────────────────────────────────
 export default function EditServicesScreen() {
+    const insets = useSafeAreaInsets();
     const router = useRouter();
     const { toast, showToast, hideToast } = useToast();
 
@@ -244,8 +357,8 @@ export default function EditServicesScreen() {
             const bikePrices = g.service_prices?.bike ?? {};
             const scootyPrices = g.service_prices?.scooty ?? {};
 
-            setBikeMap(buildMap(BIKE_CATALOGUE, g.services?.bike ?? [], bikePrices));
-            setScootyMap(buildMap(SCOOTY_CATALOGUE, g.services?.scooty ?? [], scootyPrices));
+            setBikeMap(buildMap(BIKE_CATALOGUE, g.services?.bike ?? [], bikePrices, true));
+            setScootyMap(buildMap(SCOOTY_CATALOGUE, g.services?.scooty ?? [], scootyPrices, false));
 
             setBikeCompletePrice(
                 bikePrices['Complete Servicing'] != null
@@ -329,7 +442,7 @@ export default function EditServicesScreen() {
             keyboardVerticalOffset={90}
         >
             {/* Header */}
-            <View style={styles.header}>
+            <View style={[styles.header, { paddingTop: Math.max(insets.top + Spacing.xs, Spacing.md) }]}>
                 <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
                     <Ionicons name="chevron-back" size={22} color={Colors.textPrimary} />
                 </TouchableOpacity>
@@ -465,7 +578,7 @@ export default function EditServicesScreen() {
 const styles = StyleSheet.create({
     root: { flex: 1, backgroundColor: Colors.bg },
     loadingWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: Colors.bg },
-    header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: Colors.surface, paddingHorizontal: Spacing.md, paddingTop: 56, paddingBottom: Spacing.md, borderBottomWidth: 1, borderBottomColor: Colors.borderLight },
+    header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: Colors.surface, paddingHorizontal: Spacing.md, paddingBottom: Spacing.md, borderBottomWidth: 1, borderBottomColor: Colors.borderLight },
     backBtn: { width: 36, height: 36, borderRadius: Radius.sm, backgroundColor: Colors.bg, alignItems: 'center', justifyContent: 'center' },
     headerCenter: { flex: 1, alignItems: 'center' },
     headerTitle: { ...Typography.h2, color: Colors.textPrimary },

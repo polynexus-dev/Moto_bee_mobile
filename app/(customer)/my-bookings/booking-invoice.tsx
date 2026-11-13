@@ -4,6 +4,7 @@ import {
     TouchableOpacity, ActivityIndicator, StatusBar, Alert, Linking,
 } from 'react-native';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
@@ -173,6 +174,7 @@ function generateInvoiceHTML(
 
 // ── Screen ─────────────────────────────────────────────────────────────────────
 export default function BookingInvoiceScreen() {
+    const insets = useSafeAreaInsets();
     const router = useRouter();
     const { booking: raw } = useLocalSearchParams<{ booking: string }>();
     const booking: Booking = JSON.parse(raw ?? '{}');
@@ -231,7 +233,7 @@ export default function BookingInvoiceScreen() {
             <View style={s.container}>
 
                 {/* ── Top Header ─────────────────────────────────────────── */}
-                <View style={s.header}>
+                <View style={[s.header, { paddingTop: Math.max(insets.top + Spacing.xs, Spacing.md) }]}>
                     <TouchableOpacity
                         style={s.backBtn}
                         onPress={() => {
@@ -398,7 +400,7 @@ const s = StyleSheet.create({
     header: {
         flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
         backgroundColor: Colors.surface, paddingHorizontal: Spacing.md,
-        paddingTop: 52, paddingBottom: Spacing.md,
+        paddingBottom: Spacing.md,
         borderBottomWidth: 1, borderBottomColor: Colors.borderLight,
     },
     backBtn: {

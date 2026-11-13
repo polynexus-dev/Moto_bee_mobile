@@ -4,11 +4,13 @@ import {
     getCart, addToCart as addToCartStorage,
     removeFromCart as removeFromCartStorage,
     clearCart as clearCartStorage,
+    updateCartItem as updateCartItemStorage,
 } from '../utils/services/cartService';
 
 type CartContextType = {
     items: CartItem[];
     addItem: (payload: AddToCartPayload) => Promise<void>;
+    updateItem: (cartId: string, payload: AddToCartPayload) => Promise<void>;
     removeItem: (cartId: string) => Promise<void>;
     clearCart: () => Promise<void>;
     loading: boolean;
@@ -30,6 +32,11 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
         setItems((prev) => [newItem, ...prev]);
     }, []);
 
+    const updateItem = useCallback(async (cartId: string, payload: AddToCartPayload) => {
+        const updated = await updateCartItemStorage(cartId, payload);
+        setItems(updated);
+    }, []);
+
     const removeItem = useCallback(async (cartId: string) => {
         const updated = await removeFromCartStorage(cartId);
         setItems(updated);
@@ -41,7 +48,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     }, []);
 
     return (
-        <CartContext.Provider value={{ items, addItem, removeItem, clearCart, loading }}>
+        <CartContext.Provider value={{ items, addItem, updateItem, removeItem, clearCart, loading }}>
             {children}
         </CartContext.Provider>
     );

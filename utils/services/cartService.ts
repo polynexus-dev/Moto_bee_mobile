@@ -54,6 +54,17 @@ export async function clearCart(): Promise<void> {
     await AsyncStorage.removeItem(CART_KEY);
 }
 
+export async function updateCartItem(cartId: string, payload: AddToCartPayload): Promise<CartItem[]> {
+    const cart = await getCart();
+    const updated = cart.map((item) =>
+        item.cartId === cartId
+            ? { ...item, ...payload, addedAt: new Date().toISOString() }
+            : item
+    );
+    await AsyncStorage.setItem(CART_KEY, JSON.stringify(updated));
+    return updated;
+}
+
 export async function getCartCount(): Promise<number> {
     const cart = await getCart();
     return cart.length;

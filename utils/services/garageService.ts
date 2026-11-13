@@ -36,8 +36,9 @@ export async function updateGarageInfo(id: any, payload: {
     phone?: string;
     latitude?: number;   // ← add
     longitude?: number;   // ← add
+    images?: string[];
+    image?: string;
 }): Promise<Garage> {
-    // const { data } = await api.patch(`/garages/${id}/`, payload);
     const { data } = await api.patch(`/garages/mine/`, payload);
     return data;
 }

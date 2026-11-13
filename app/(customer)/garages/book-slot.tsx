@@ -1,13 +1,15 @@
 // app/(customer)/book-slot.tsx
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef, useMemo } from 'react';
 import {
     View, Text, StyleSheet, ScrollView, TouchableOpacity,
     ActivityIndicator, TextInput, Modal, FlatList,
-    KeyboardAvoidingView, Platform,
+    KeyboardAvoidingView, Platform, Pressable,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import BottomSheet, { BottomSheetFlatList, BottomSheetScrollView, BottomSheetBackdrop, BottomSheetTextInput } from '@gorhom/bottom-sheet';
 import { getGarageById } from '../../../utils/services/garageService';
 import { getBookedSlots } from '../../../utils/services/bookingService';
 import { getAvailableDates, getSlotsForDay } from '../../../utils/helpers/slotGenerator';
@@ -86,6 +88,7 @@ function VehiclePickerModal({
     visible, vehicles, selectedId, loading,
     onSelect, onAdd, onDelete, onClose,
 }: VehiclePickerModalProps) {
+    const sheetRef = useRef<BottomSheet>(null);
     const [view, setView] = useState<'list' | 'add'>('list');
     const [saving, setSaving] = useState(false);
     const [deleting, setDeleting] = useState<number | null>(null);
@@ -99,7 +102,13 @@ function VehiclePickerModal({
     const [color, setColor] = useState('');
 
     useEffect(() => {
-        if (visible) { setView('list'); resetForm(); }
+        if (visible) {
+            setView('list');
+            resetForm();
+            sheetRef.current?.expand();
+        } else {
+            sheetRef.current?.close();
+        }
     }, [visible]);
 
     const resetForm = () => {
@@ -131,267 +140,292 @@ function VehiclePickerModal({
         setDeleting(null);
     };
 
+    const snapPoints = useMemo(() => ['40%', '80%'], []);
+
+    const renderBackdrop = useCallback(
+        (props: any) => (
+            <BottomSheetBackdrop
+                {...props}
+                disappearsOnIndex={-1}
+                appearsOnIndex={0}
+                pressBehavior="close"
+            />
+        ),
+        []
+    );
+
+    const handleSheetChanges = useCallback(
+        (index: number) => {
+            if (index === -1) {
+                onClose();
+            }
+        },
+        [onClose]
+    );
+
     return (
-        <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
-            <View style={vpStyles.backdrop}>
-                <KeyboardAvoidingView
-                    behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-                    style={vpStyles.sheet}
-                >
-                    {/* ── Header ─────────────────────────────────────────── */}
-                    <View style={vpStyles.header}>
-                        {view === 'add' ? (
-                            <TouchableOpacity style={vpStyles.iconBtn} onPress={() => setView('list')}>
-                                <Ionicons name="chevron-back" size={20} color={Colors.textPrimary} />
-                            </TouchableOpacity>
-                        ) : (
-                            <View style={vpStyles.headerIcon}>
-                                <Ionicons name="car-sport-outline" size={18} color={Colors.primary} />
-                            </View>
-                        )}
-                        <Text style={vpStyles.headerTitle}>
-                            {view === 'add' ? 'Add New Vehicle' : 'Select Vehicle'}
-                        </Text>
-                        <TouchableOpacity style={vpStyles.iconBtn} onPress={onClose}>
-                            <Ionicons name="close" size={20} color={Colors.textSecondary} />
+        <BottomSheet
+            ref={sheetRef}
+            index={visible ? 0 : -1}
+            snapPoints={snapPoints}
+            enablePanDownToClose
+            backdropComponent={renderBackdrop}
+            onChange={handleSheetChanges}
+            backgroundStyle={{ backgroundColor: Colors.surface }}
+            handleIndicatorStyle={{ backgroundColor: Colors.border }}
+        >
+            <View style={vpStyles.sheetContainer}>
+                {/* ── Header ─────────────────────────────────────────── */}
+                <View style={vpStyles.header}>
+                    {view === 'add' ? (
+                        <TouchableOpacity style={vpStyles.iconBtn} onPress={() => setView('list')}>
+                            <Ionicons name="chevron-back" size={20} color={Colors.textPrimary} />
                         </TouchableOpacity>
-                    </View>
-
-                    {/* ── LIST view ──────────────────────────────────────── */}
-                    {view === 'list' && (
-                        <>
-                            {loading ? (
-                                <View style={vpStyles.centeredBox}>
-                                    <ActivityIndicator color={Colors.primary} />
-                                </View>
-                            ) : vehicles.length === 0 ? (
-                                <View style={vpStyles.centeredBox}>
-                                    <View style={vpStyles.emptyIllustration}>
-                                        <Ionicons name="bicycle-outline" size={38} color={Colors.textTertiary} />
-                                    </View>
-                                    <Text style={vpStyles.emptyTitle}>{'No vehicles saved yet'}</Text>
-                                    <Text style={vpStyles.emptySubtitle}>
-                                        {'Add your bike or scooty to book faster next time.'}
-                                    </Text>
-                                </View>
-                            ) : (
-                                <FlatList
-                                    data={vehicles}
-                                    keyExtractor={(v) => String(v.id)}
-                                    style={vpStyles.list}
-                                    showsVerticalScrollIndicator={false}
-                                    ItemSeparatorComponent={() => <View style={vpStyles.separator} />}
-                                    renderItem={({ item: v }) => {
-                                        const isSelected = selectedId === v.id;
-                                        const isBike = v.type === 'bike';
-                                        return (
-                                            <TouchableOpacity
-                                                style={[vpStyles.vehicleRow, isSelected && vpStyles.vehicleRowActive]}
-                                                onPress={() => { onSelect(v); onClose(); }}
-                                                activeOpacity={0.75}
-                                            >
-                                                {/* Type icon */}
-                                                <View style={[
-                                                    vpStyles.typeIcon,
-                                                    isBike ? vpStyles.typeIconBike : vpStyles.typeIconScooty,
-                                                ]}>
-                                                    <Ionicons
-                                                        name={isBike ? 'bicycle-outline' : 'speedometer-outline'}
-                                                        size={22}
-                                                        color={isBike ? Colors.info : '#6D28D9'}
-                                                    />
-                                                </View>
-
-                                                {/* Info */}
-                                                <View style={vpStyles.vehicleInfo}>
-                                                    <Text style={[vpStyles.vehicleName, isSelected && vpStyles.vehicleNameActive]}>
-                                                        {vehicleDisplayName(v)}
-                                                    </Text>
-                                                    {vehicleSubDetail(v) !== '' && (
-                                                        <Text style={vpStyles.vehicleSub}>{vehicleSubDetail(v)}</Text>
-                                                    )}
-                                                    <View style={[
-                                                        vpStyles.typeBadge,
-                                                        isBike ? vpStyles.typeBadgeBike : vpStyles.typeBadgeScooty,
-                                                    ]}>
-                                                        <Text style={[
-                                                            vpStyles.typeBadgeText,
-                                                            { color: isBike ? Colors.info : '#6D28D9' },
-                                                        ]}>
-                                                            {isBike ? 'Bike' : 'Scooty'}
-                                                        </Text>
-                                                    </View>
-                                                </View>
-
-                                                {/* Right action */}
-                                                {isSelected ? (
-                                                    <Ionicons name="checkmark-circle" size={24} color={Colors.primary} />
-                                                ) : (
-                                                    <TouchableOpacity
-                                                        style={vpStyles.deleteBtn}
-                                                        onPress={() => handleDelete(v.id)}
-                                                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                                                    >
-                                                        {deleting === v.id
-                                                            ? <ActivityIndicator size="small" color={Colors.error} />
-                                                            : <Ionicons name="trash-outline" size={17} color={Colors.error} />
-                                                        }
-                                                    </TouchableOpacity>
-                                                )}
-                                            </TouchableOpacity>
-                                        );
-                                    }}
-                                />
-                            )}
-
-                            {/* Add vehicle CTA */}
-                            <View style={vpStyles.footer}>
-                                <TouchableOpacity
-                                    style={vpStyles.addVehicleBtn}
-                                    onPress={() => setView('add')}
-                                    activeOpacity={0.85}
-                                >
-                                    <View style={vpStyles.addVehicleBtnIcon}>
-                                        <Ionicons name="add" size={20} color={Colors.primary} />
-                                    </View>
-                                    <Text style={vpStyles.addVehicleBtnText}>{'Add New Vehicle'}</Text>
-                                    <Ionicons name="chevron-forward" size={18} color={Colors.primary} />
-                                </TouchableOpacity>
-                            </View>
-                        </>
+                    ) : (
+                        <View style={vpStyles.headerIcon}>
+                            <Ionicons name="car-sport-outline" size={18} color={Colors.primary} />
+                        </View>
                     )}
+                    <Text style={vpStyles.headerTitle}>
+                        {view === 'add' ? 'Add New Vehicle' : 'Select Vehicle'}
+                    </Text>
+                    <TouchableOpacity style={vpStyles.iconBtn} onPress={onClose}>
+                        <Ionicons name="close" size={20} color={Colors.textSecondary} />
+                    </TouchableOpacity>
+                </View>
 
-                    {/* ── ADD FORM view ───────────────────────────────────── */}
-                    {view === 'add' && (
-                        <ScrollView
-                            style={vpStyles.addForm}
-                            showsVerticalScrollIndicator={false}
-                            keyboardShouldPersistTaps="handled"
-                        >
-                            {/* Vehicle Type */}
-                            <Text style={vpStyles.fieldLabel}>{'VEHICLE TYPE *'}</Text>
-                            <View style={vpStyles.typeToggle}>
-                                {(['bike', 'scooty'] as VType[]).map((t) => (
-                                    <TouchableOpacity
-                                        key={t}
-                                        style={[vpStyles.typeBtn, type === t && vpStyles.typeBtnActive]}
-                                        onPress={() => setType(t)}
-                                        activeOpacity={0.75}
-                                    >
-                                        <Ionicons
-                                            name={t === 'bike' ? 'bicycle-outline' : 'speedometer-outline'}
-                                            size={18}
-                                            color={type === t ? Colors.primary : Colors.textTertiary}
-                                        />
-                                        <Text style={[vpStyles.typeBtnText, type === t && vpStyles.typeBtnTextActive]}>
-                                            {t === 'bike' ? 'Bike' : 'Scooty'}
-                                        </Text>
-                                    </TouchableOpacity>
-                                ))}
+                {/* ── LIST view ──────────────────────────────────────── */}
+                {view === 'list' && (
+                    <View style={{ flex: 1 }}>
+                        {loading ? (
+                            <View style={vpStyles.centeredBox}>
+                                <ActivityIndicator color={Colors.primary} />
                             </View>
-
-                            {/* Brand */}
-                            <Text style={vpStyles.fieldLabel}>{'BRAND *'}</Text>
-                            <View style={vpStyles.fieldRow}>
-                                <Ionicons name="business-outline" size={17} color={Colors.textTertiary} />
-                                <TextInput
-                                    style={vpStyles.fieldInput}
-                                    placeholder="e.g. Honda, Hero, TVS, Yamaha"
-                                    placeholderTextColor={Colors.textTertiary}
-                                    value={brand}
-                                    onChangeText={setBrand}
-                                    autoCapitalize="words"
-                                />
-                            </View>
-
-                            {/* Model */}
-                            <Text style={vpStyles.fieldLabel}>{'MODEL *'}</Text>
-                            <View style={vpStyles.fieldRow}>
-                                <Ionicons name={type === 'bike' ? 'bicycle-outline' : 'speedometer-outline'} size={17} color={Colors.textTertiary} />
-                                <TextInput
-                                    style={vpStyles.fieldInput}
-                                    placeholder="e.g. CB Shine, Activa 6G, FZ-S"
-                                    placeholderTextColor={Colors.textTertiary}
-                                    value={model}
-                                    onChangeText={setModel}
-                                    autoCapitalize="words"
-                                />
-                            </View>
-
-                            {/* Registration */}
-                            <Text style={vpStyles.fieldLabel}>{'REGISTRATION NUMBER'}</Text>
-                            <View style={vpStyles.fieldRow}>
-                                <Ionicons name="card-outline" size={17} color={Colors.textTertiary} />
-                                <TextInput
-                                    style={vpStyles.fieldInput}
-                                    placeholder="e.g. MH12AB1234"
-                                    placeholderTextColor={Colors.textTertiary}
-                                    value={registration}
-                                    onChangeText={(t) => setRegistration(t.toUpperCase())}
-                                    autoCapitalize="characters"
-                                />
-                            </View>
-
-                            {/* Year + Color side by side */}
-                            <View style={vpStyles.halfRow}>
-                                <View style={{ flex: 1 }}>
-                                    <Text style={vpStyles.fieldLabel}>{'YEAR'}</Text>
-                                    <View style={vpStyles.fieldRow}>
-                                        <Ionicons name="calendar-outline" size={17} color={Colors.textTertiary} />
-                                        <TextInput
-                                            style={vpStyles.fieldInput}
-                                            placeholder="2022"
-                                            placeholderTextColor={Colors.textTertiary}
-                                            value={year}
-                                            onChangeText={setYear}
-                                            keyboardType="number-pad"
-                                            maxLength={4}
-                                        />
-                                    </View>
+                        ) : vehicles.length === 0 ? (
+                            <View style={vpStyles.centeredBox}>
+                                <View style={vpStyles.emptyIllustration}>
+                                    <Ionicons name="bicycle-outline" size={38} color={Colors.textTertiary} />
                                 </View>
-                                <View style={{ flex: 1 }}>
-                                    <Text style={vpStyles.fieldLabel}>{'COLOR'}</Text>
-                                    <View style={vpStyles.fieldRow}>
-                                        <Ionicons name="color-palette-outline" size={17} color={Colors.textTertiary} />
-                                        <TextInput
-                                            style={vpStyles.fieldInput}
-                                            placeholder="Black, Red..."
-                                            placeholderTextColor={Colors.textTertiary}
-                                            value={color}
-                                            onChangeText={setColor}
-                                            autoCapitalize="words"
-                                        />
-                                    </View>
-                                </View>
+                                <Text style={vpStyles.emptyTitle}>{'No vehicles saved yet'}</Text>
+                                <Text style={vpStyles.emptySubtitle}>
+                                    {'Add your bike or scooty to book faster next time.'}
+                                </Text>
                             </View>
+                        ) : (
+                            <BottomSheetFlatList
+                                data={vehicles}
+                                keyExtractor={(v) => String(v.id)}
+                                contentContainerStyle={{ paddingBottom: 24 }}
+                                ItemSeparatorComponent={() => <View style={vpStyles.separator} />}
+                                renderItem={({ item: v }) => {
+                                    const isSelected = selectedId === v.id;
+                                    const isBike = v.type === 'bike';
+                                    return (
+                                        <TouchableOpacity
+                                            style={[vpStyles.vehicleRow, isSelected && vpStyles.vehicleRowActive]}
+                                            onPress={() => { onSelect(v); onClose(); }}
+                                            activeOpacity={0.75}
+                                        >
+                                            {/* Type icon */}
+                                            <View style={[
+                                                vpStyles.typeIcon,
+                                                isBike ? vpStyles.typeIconBike : vpStyles.typeIconScooty,
+                                            ]}>
+                                                <Ionicons
+                                                    name={isBike ? 'bicycle-outline' : 'speedometer-outline'}
+                                                    size={22}
+                                                    color={isBike ? Colors.info : '#6D28D9'}
+                                                />
+                                            </View>
 
-                            {/* Save */}
+                                            {/* Info */}
+                                            <View style={vpStyles.vehicleInfo}>
+                                                <Text style={[vpStyles.vehicleName, isSelected && vpStyles.vehicleNameActive]}>
+                                                    {vehicleDisplayName(v)}
+                                                </Text>
+                                                {vehicleSubDetail(v) !== '' && (
+                                                    <Text style={vpStyles.vehicleSub}>{vehicleSubDetail(v)}</Text>
+                                                )}
+                                                <View style={[
+                                                    vpStyles.typeBadge,
+                                                    isBike ? vpStyles.typeBadgeBike : vpStyles.typeBadgeScooty,
+                                                ]}>
+                                                    <Text style={[
+                                                        vpStyles.typeBadgeText,
+                                                        { color: isBike ? Colors.info : '#6D28D9' },
+                                                    ]}>
+                                                        {isBike ? 'Bike' : 'Scooty'}
+                                                    </Text>
+                                                </View>
+                                            </View>
+
+                                            {/* Right action */}
+                                            {isSelected ? (
+                                                <Ionicons name="checkmark-circle" size={24} color={Colors.primary} />
+                                            ) : (
+                                                <TouchableOpacity
+                                                    style={vpStyles.deleteBtn}
+                                                    onPress={() => handleDelete(v.id)}
+                                                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                                                >
+                                                    {deleting === v.id
+                                                        ? <ActivityIndicator size="small" color={Colors.error} />
+                                                        : <Ionicons name="trash-outline" size={17} color={Colors.error} />
+                                                    }
+                                                </TouchableOpacity>
+                                            )}
+                                        </TouchableOpacity>
+                                    );
+                                }}
+                            />
+                        )}
+
+                        {/* Add vehicle CTA */}
+                        <View style={vpStyles.footer}>
                             <TouchableOpacity
-                                style={[vpStyles.saveBtn, (!isFormValid || saving) && vpStyles.saveBtnDisabled]}
-                                onPress={handleSave}
-                                disabled={!isFormValid || saving}
+                                style={vpStyles.addVehicleBtn}
+                                onPress={() => setView('add')}
                                 activeOpacity={0.85}
                             >
-                                {saving
-                                    ? <ActivityIndicator color="#fff" />
-                                    : <>
-                                        <Ionicons name="checkmark-circle-outline" size={18} color="#fff" />
-                                        <Text style={vpStyles.saveBtnText}>{'Save Vehicle'}</Text>
-                                    </>
-                                }
+                                <View style={vpStyles.addVehicleBtnIcon}>
+                                    <Ionicons name="add" size={20} color={Colors.primary} />
+                                </View>
+                                <Text style={vpStyles.addVehicleBtnText}>{'Add New Vehicle'}</Text>
+                                <Ionicons name="chevron-forward" size={18} color={Colors.primary} />
                             </TouchableOpacity>
-                            <View style={{ height: 32 }} />
-                        </ScrollView>
-                    )}
-                </KeyboardAvoidingView>
+                        </View>
+                    </View>
+                )}
+
+                {/* ── ADD FORM view ───────────────────────────────────── */}
+                {view === 'add' && (
+                    <BottomSheetScrollView
+                        style={vpStyles.addForm}
+                        contentContainerStyle={{ paddingBottom: 40 }}
+                        keyboardShouldPersistTaps="handled"
+                    >
+                        {/* Vehicle Type */}
+                        <Text style={vpStyles.fieldLabel}>{'VEHICLE TYPE *'}</Text>
+                        <View style={vpStyles.typeToggle}>
+                            {(['bike', 'scooty'] as VType[]).map((t) => (
+                                <TouchableOpacity
+                                    key={t}
+                                    style={[vpStyles.typeBtn, type === t && vpStyles.typeBtnActive]}
+                                    onPress={() => setType(t)}
+                                    activeOpacity={0.75}
+                                >
+                                    <Ionicons
+                                        name={t === 'bike' ? 'bicycle-outline' : 'speedometer-outline'}
+                                        size={18}
+                                        color={type === t ? Colors.primary : Colors.textTertiary}
+                                    />
+                                    <Text style={[vpStyles.typeBtnText, type === t && vpStyles.typeBtnTextActive]}>
+                                        {t === 'bike' ? 'Bike' : 'Scooty'}
+                                    </Text>
+                                </TouchableOpacity>
+                            ))}
+                        </View>
+
+                        {/* Brand */}
+                        <Text style={vpStyles.fieldLabel}>{'BRAND *'}</Text>
+                        <View style={vpStyles.fieldRow}>
+                            <Ionicons name="business-outline" size={17} color={Colors.textTertiary} />
+                            <BottomSheetTextInput
+                                style={vpStyles.fieldInput}
+                                placeholder="e.g. Honda, Hero, TVS, Yamaha"
+                                placeholderTextColor={Colors.textTertiary}
+                                value={brand}
+                                onChangeText={setBrand}
+                                autoCapitalize="words"
+                            />
+                        </View>
+
+                        {/* Model */}
+                        <Text style={vpStyles.fieldLabel}>{'MODEL *'}</Text>
+                        <View style={vpStyles.fieldRow}>
+                            <Ionicons name={type === 'bike' ? 'bicycle-outline' : 'speedometer-outline'} size={17} color={Colors.textTertiary} />
+                            <BottomSheetTextInput
+                                style={vpStyles.fieldInput}
+                                placeholder="e.g. CB Shine, Activa 6G, FZ-S"
+                                placeholderTextColor={Colors.textTertiary}
+                                value={model}
+                                onChangeText={setModel}
+                                autoCapitalize="words"
+                            />
+                        </View>
+
+                        {/* Registration */}
+                        <Text style={vpStyles.fieldLabel}>{'REGISTRATION NUMBER'}</Text>
+                        <View style={vpStyles.fieldRow}>
+                            <Ionicons name="card-outline" size={17} color={Colors.textTertiary} />
+                            <BottomSheetTextInput
+                                style={vpStyles.fieldInput}
+                                placeholder="e.g. MH12AB1234"
+                                placeholderTextColor={Colors.textTertiary}
+                                value={registration}
+                                onChangeText={(t) => setRegistration(t.toUpperCase())}
+                                autoCapitalize="characters"
+                            />
+                        </View>
+
+                        {/* Year + Color side by side */}
+                        <View style={vpStyles.halfRow}>
+                            <View style={{ flex: 1 }}>
+                                <Text style={vpStyles.fieldLabel}>{'YEAR'}</Text>
+                                <View style={vpStyles.fieldRow}>
+                                    <Ionicons name="calendar-outline" size={17} color={Colors.textTertiary} />
+                                    <BottomSheetTextInput
+                                        style={vpStyles.fieldInput}
+                                        placeholder="2022"
+                                        placeholderTextColor={Colors.textTertiary}
+                                        value={year}
+                                        onChangeText={setYear}
+                                        keyboardType="number-pad"
+                                        maxLength={4}
+                                    />
+                                </View>
+                            </View>
+                            <View style={{ flex: 1 }}>
+                                <Text style={vpStyles.fieldLabel}>{'COLOR'}</Text>
+                                <View style={vpStyles.fieldRow}>
+                                    <Ionicons name="color-palette-outline" size={17} color={Colors.textTertiary} />
+                                    <BottomSheetTextInput
+                                        style={vpStyles.fieldInput}
+                                        placeholder="Black, Red..."
+                                        placeholderTextColor={Colors.textTertiary}
+                                        value={color}
+                                        onChangeText={setColor}
+                                        autoCapitalize="words"
+                                    />
+                                </View>
+                            </View>
+                        </View>
+
+                        {/* Save */}
+                        <TouchableOpacity
+                            style={[vpStyles.saveBtn, (!isFormValid || saving) && vpStyles.saveBtnDisabled]}
+                            onPress={handleSave}
+                            disabled={!isFormValid || saving}
+                            activeOpacity={0.85}
+                        >
+                            {saving
+                                ? <ActivityIndicator color="#fff" />
+                                : <>
+                                    <Ionicons name="checkmark-circle-outline" size={18} color="#fff" />
+                                    <Text style={vpStyles.saveBtnText}>{'Save Vehicle'}</Text>
+                                </>
+                            }
+                        </TouchableOpacity>
+                        <View style={{ height: 32 }} />
+                    </BottomSheetScrollView>
+                )}
             </View>
-        </Modal>
+        </BottomSheet>
     );
 }
 
 const vpStyles = StyleSheet.create({
-    backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' },
-    sheet: { backgroundColor: Colors.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '90%', ...Shadow.lg },
+    sheetContainer: { flex: 1 },
 
     header: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, padding: Spacing.md, borderBottomWidth: 1, borderBottomColor: Colors.borderLight },
     headerIcon: { width: 32, height: 32, borderRadius: 16, backgroundColor: Colors.primaryLight, alignItems: 'center', justifyContent: 'center' },
@@ -534,7 +568,8 @@ const secStyles = StyleSheet.create({
 // Main Screen
 // ─────────────────────────────────────────────────────────────────────────────
 export default function BookSlotScreen() {
-    const { id } = useLocalSearchParams<{ id: string }>();
+    const insets = useSafeAreaInsets();
+    const { id, cartId } = useLocalSearchParams<{ id: string; cartId?: string }>();
     const router = useRouter();
     const { toast, showToast, hideToast } = useToast();
 
@@ -564,7 +599,14 @@ export default function BookSlotScreen() {
     const [addingToCart, setAddingToCart] = useState(false);
     const { bookSlotShouldReset, setBookSlotShouldReset } = useUIStore();
 
-    const { addItem } = useCart();
+    const { items, addItem, updateItem } = useCart();
+
+    const editingCartItem = useMemo(() => {
+        if (!cartId) return null;
+        return items.find((item) => item.cartId === cartId) || null;
+    }, [cartId, items]);
+
+    const prepopulatedRef = useRef<string | null>(null);
 
     // Step — vehicle ready when either a saved vehicle is selected OR manual details typed
     const vehicleReady = selectedVehicle !== null || bikeDetails.trim().length > 0;
@@ -601,6 +643,77 @@ export default function BookSlotScreen() {
             .catch(() => { })
             .finally(() => setVehiclesLoading(false));
     }, []);
+
+    // ── Reactive slot loading ─────────────────────────────────────────────────
+    useEffect(() => {
+        if (!selectedDate || !garage) {
+            setAvailableSlots([]);
+            setBookedSlots([]);
+            return;
+        }
+
+        const loadSlots = async () => {
+            const schedule = (garage.schedule ?? []) as DaySchedule[];
+            const dateInfo = availableDates.find((d) => d.date === selectedDate);
+            const weekday = dateInfo ? dateInfo.weekday : new Date(selectedDate).toLocaleDateString('en-US', { weekday: 'long' });
+
+            const dayConfig = schedule.find((s) => s.day === weekday);
+            const slots = dayConfig ? getSlotsForDay(dayConfig) : [];
+            setAvailableSlots(slots);
+
+            if (garage.id && slots.length > 0) {
+                setLoadingSlots(true);
+                try {
+                    const taken = await getBookedSlots(String(garage.id), selectedDate);
+                    setBookedSlots(taken.map(formatDisplayTime));
+                } catch { /* non-critical */ }
+                finally { setLoadingSlots(false); }
+            } else {
+                setBookedSlots([]);
+            }
+        };
+
+        loadSlots();
+    }, [selectedDate, garage, availableDates]);
+
+    // ── Pre-populate form for editing ─────────────────────────────────────────
+    useEffect(() => {
+        if (vehiclesLoading || !editingCartItem || prepopulatedRef.current === editingCartItem.cartId) return;
+
+        prepopulatedRef.current = editingCartItem.cartId;
+
+        const match = vehicles.find((v) =>
+            (v.registration && editingCartItem.vehicleReg && v.registration.toLowerCase() === editingCartItem.vehicleReg.toLowerCase()) ||
+            (v.brand.toLowerCase() === editingCartItem.vehicleBrand.toLowerCase() && v.model.toLowerCase() === editingCartItem.vehicleModel.toLowerCase())
+        );
+
+        if (match) {
+            setSelectedVehicle(match);
+        } else {
+            setSelectedVehicle(null);
+        }
+
+        setVehicleType(editingCartItem.vehicleType as BookingVehicleType);
+        setBikeDetails(editingCartItem.bikeDetails);
+        setSelectedServices(editingCartItem.services);
+        setSelectedDate(editingCartItem.date);
+        setSelectedSlot(editingCartItem.timeDisplay);
+    }, [vehiclesLoading, editingCartItem, vehicles]);
+
+    // ── Reset form fields when entering a new booking (no cartId) ──────────────
+    useEffect(() => {
+        if (!cartId) {
+            setSelectedVehicle(null);
+            setVehicleType('bike');
+            setBikeDetails('');
+            setSelectedServices([]);
+            setSelectedDate(null);
+            setSelectedSlot(null);
+            setAvailableSlots([]);
+            setBookedSlots([]);
+            prepopulatedRef.current = null;
+        }
+    }, [cartId]);
 
     // ── Reset only when booking was just completed ────────────────────────────
     useFocusEffect(
@@ -677,22 +790,9 @@ export default function BookSlotScreen() {
         setSelectedServices(allSel ? [] : all);
     };
 
-    const handleDateSelect = async (item: AvailableDate) => {
+    const handleDateSelect = (item: AvailableDate) => {
         setSelectedDate(item.date);
         setSelectedSlot(null);
-        setBookedSlots([]);
-        const schedule = (garage?.schedule ?? []) as DaySchedule[];
-        const dayConfig = schedule.find((s) => s.day === item.weekday);
-        const slots = dayConfig ? getSlotsForDay(dayConfig) : [];
-        setAvailableSlots(slots);
-        if (garage?.id && slots.length > 0) {
-            setLoadingSlots(true);
-            try {
-                const taken = await getBookedSlots(String(garage.id), item.date);
-                setBookedSlots(taken.map(formatDisplayTime));
-            } catch { /* non-critical */ }
-            finally { setLoadingSlots(false); }
-        }
     };
 
     const handleAddToCart = async () => {
@@ -702,7 +802,7 @@ export default function BookSlotScreen() {
         }
         setAddingToCart(true);
         try {
-            await addItem({
+            const cartPayload = {
                 garageId: String(garage!.id),
                 garageName: garage!.name,
                 garageAddress: garage!.address,
@@ -717,11 +817,18 @@ export default function BookSlotScreen() {
                 timeDisplay: selectedSlot,
                 timeRaw: toHHMM(selectedSlot),
                 estimatedPrice: estimatedTotal,
-            });
-            showToast('Added to cart!', 'success');
+            };
+
+            if (editingCartItem) {
+                await updateItem(editingCartItem.cartId, cartPayload);
+                showToast('Changes saved!', 'success');
+            } else {
+                await addItem(cartPayload);
+                showToast('Added to cart!', 'success');
+            }
             setTimeout(() => router.replace('/(customer)/cart' as any), 800);
         } catch {
-            showToast('Failed to add to cart. Please try again.', 'error');
+            showToast('Failed to save booking. Please try again.', 'error');
         } finally {
             setAddingToCart(false);
         }
@@ -740,7 +847,7 @@ export default function BookSlotScreen() {
         <View style={styles.root}>
 
             {/* Header */}
-            <View style={styles.header}>
+            <View style={[styles.header, { paddingTop: Math.max(insets.top + Spacing.xs, Spacing.md) }]}>
                 <TouchableOpacity
                     style={styles.backBtn}
                     onPress={() => router.push({ pathname: '/(customer)/garages/garage-detail', params: { id: String(garage.id) } } as any)}
@@ -1115,8 +1222,8 @@ export default function BookSlotScreen() {
                     {addingToCart
                         ? <ActivityIndicator color="#fff" />
                         : <>
-                            <Ionicons name="cart-outline" size={20} color="#fff" />
-                            <Text style={styles.confirmBtnText}>{'Add to Cart'}</Text>
+                            <Ionicons name={editingCartItem ? "save-outline" : "cart-outline"} size={20} color="#fff" />
+                            <Text style={styles.confirmBtnText}>{editingCartItem ? 'Save Changes' : 'Add to Cart'}</Text>
                         </>
                     }
                 </TouchableOpacity>
@@ -1146,7 +1253,7 @@ const styles = StyleSheet.create({
     errorBox: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: Spacing.sm },
     errorText: { ...Typography.h3, color: Colors.error },
 
-    header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: Colors.surface, paddingHorizontal: Spacing.md, paddingTop: 56, paddingBottom: Spacing.md, borderBottomWidth: 1, borderBottomColor: Colors.borderLight },
+    header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: Colors.surface, paddingHorizontal: Spacing.md, paddingBottom: Spacing.md, borderBottomWidth: 1, borderBottomColor: Colors.borderLight },
     backBtn: { width: 36, height: 36, borderRadius: Radius.sm, backgroundColor: Colors.bg, alignItems: 'center', justifyContent: 'center' },
     headerCenter: { flex: 1, alignItems: 'center' },
     headerTitle: { ...Typography.h2, color: Colors.textPrimary },

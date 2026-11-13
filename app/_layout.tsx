@@ -2,6 +2,7 @@
 
 import { Slot, useRouter, useSegments } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import {
   ActivityIndicator, Animated, Dimensions,
   StatusBar, StyleSheet, Text, View,
@@ -47,7 +48,7 @@ function AuthGate() {
     const inAuthGroup = segments[0] === '(auth)';
     const inOwnerGroup = segments[0] === '(owner)';
     const inCustomerGroup = segments[0] === '(customer)';
-    const inLocationScreen = segments[1] === 'location';
+    const inLocationScreen = segments[1] === 'account' && segments[2] === 'location';
 
     // Not logged in → login
     if (!token || !user) {
@@ -67,7 +68,7 @@ function AuthGate() {
     // No saved address → onboarding
     if (profiles.length === 0) {
       if (!inLocationScreen)
-        router.replace('/(customer)/location?onboarding=true' as any);
+        router.replace('/(customer)/account/location?onboarding=true' as any);
       return;
     }
 
@@ -121,30 +122,32 @@ export default function RootLayout() {
   }
 
   return (
-    <CartProvider>
-      <SafeAreaProvider>
-        <View style={{ flex: 1 }}>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <CartProvider>
+        <SafeAreaProvider>
+          <View style={{ flex: 1 }}>
 
-          {/* ✅ Hooks that need provider context */}
-          <AppInit />
+            {/* ✅ Hooks that need provider context */}
+            <AppInit />
 
-          {/* ✅ Auth + routing logic */}
-          <AuthGate />
+            {/* ✅ Auth + routing logic */}
+            <AuthGate />
 
-          {/* ✅ Splash overlay */}
-          {showWelcome && (
-            <Animated.View
-              style={[styles.overlay, { transform: [{ translateY: slideAnim }] }]}
-            >
-              <StatusBar barStyle="light-content" backgroundColor="#FF6B35" />
-              <Text style={styles.brand}>{'MOTOBEE'}</Text>
-              <Text style={styles.tagline}>{'Your Bike. Our Care.'}</Text>
-            </Animated.View>
-          )}
+            {/* ✅ Splash overlay */}
+            {showWelcome && (
+              <Animated.View
+                style={[styles.overlay, { transform: [{ translateY: slideAnim }] }]}
+              >
+                <StatusBar barStyle="light-content" backgroundColor="#FF6B35" />
+                <Text style={styles.brand}>{'MOTOBEE'}</Text>
+                <Text style={styles.tagline}>{'Your Bike. Our Care.'}</Text>
+              </Animated.View>
+            )}
 
-        </View>
-      </SafeAreaProvider>
-    </CartProvider>
+          </View>
+        </SafeAreaProvider>
+      </CartProvider>
+    </GestureHandlerRootView>
   );
 }
 
@@ -157,7 +160,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FF6B35',
   },
   overlay: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     backgroundColor: '#FF6B35',
     justifyContent: 'center',
     alignItems: 'center',

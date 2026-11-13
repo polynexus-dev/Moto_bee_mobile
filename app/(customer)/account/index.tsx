@@ -3,6 +3,7 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import * as Location from 'expo-location';
 import { router } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import React, { useState } from 'react';
 import {
     ActivityIndicator, Alert,
@@ -24,6 +25,7 @@ const TYPE_META = {
 } as const;
 
 export default function CustomerAccount() {
+    const insets = useSafeAreaInsets();
     const { user, logout, updateUser } = useAuthStore();
     const { toast, showToast, hideToast } = useToast();
     const { profiles, activeProfile, setActiveProfile } = useLocationStore();
@@ -136,7 +138,7 @@ export default function CustomerAccount() {
                 showsVerticalScrollIndicator={false}
             >
                 {/* ── Header ───────────────────────────────────────────────── */}
-                <View style={styles.header}>
+                <View style={[styles.header, { paddingTop: Math.max(insets.top + Spacing.xs, Spacing.md) }]}>
                     <Text style={styles.title}>Account</Text>
                 </View>
 
@@ -474,7 +476,7 @@ const styles = StyleSheet.create({
     header: {
         backgroundColor: Colors.surface,
         paddingHorizontal: Spacing.md,
-        paddingTop: 56, paddingBottom: Spacing.md,
+        paddingBottom: Spacing.md,
         borderBottomWidth: 1, borderBottomColor: Colors.borderLight,
     },
     title: { ...Typography.h1, color: Colors.textPrimary },

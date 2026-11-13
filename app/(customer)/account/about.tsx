@@ -5,6 +5,7 @@ import {
     View, Text, StyleSheet, TouchableOpacity, ScrollView,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Colors, Typography, Spacing, Radius, Shadow } from '../../../constants/theme';
 
@@ -28,13 +29,14 @@ const LINKS = [
 ];
 
 export default function AboutScreen() {
+    const insets = useSafeAreaInsets();
     const router = useRouter();
 
     return (
         <View style={styles.root}>
 
             {/* ── Header ──────────────────────────────────────────────────────── */}
-            <View style={styles.header}>
+            <View style={[styles.header, { paddingTop: Math.max(insets.top + Spacing.xs, Spacing.md) }]}>
                 {/* <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}> */}
                 <TouchableOpacity
                     style={styles.backBtn}
@@ -114,7 +116,7 @@ const styles = StyleSheet.create({
     header: {
         flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
         backgroundColor: Colors.surface, paddingHorizontal: Spacing.md,
-        paddingTop: 56, paddingBottom: Spacing.md,
+        paddingBottom: Spacing.md,
         borderBottomWidth: 1, borderBottomColor: Colors.borderLight,
     },
     backBtn: { width: 36, height: 36, borderRadius: Radius.sm, backgroundColor: Colors.bg, alignItems: 'center', justifyContent: 'center' },

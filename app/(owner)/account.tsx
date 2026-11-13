@@ -4,8 +4,10 @@ import React, { useState, useCallback } from 'react';
 import {
     View, Text, StyleSheet, TouchableOpacity, TextInput,
     ScrollView, ActivityIndicator, Modal, FlatList, Alert,
+    Image, Dimensions, Pressable
 } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useAuthStore } from '../../store/authStore';
 import { logoutUser } from '../../utils/services/authService';
@@ -15,22 +17,76 @@ import Toast from '../../components/Toast';
 import { useToast } from '../../hooks/useToast';
 import * as Location from 'expo-location';
 import { getMyGarage, updateGarageInfo } from '../../utils/services/garageService';
+import { getGarageStoredImages, saveGarageStoredImages } from '../../utils/storage';
+import {
+    pickFromGallerySafe,
+    takePhotoSafe,
+    GARAGE_SAMPLE_PHOTOS,
+    isNativePickerSupported,
+} from '../../utils/imagePicker';
 
 // ── Full service catalogue ────────────────────────────────────────────────────
 const BIKE_CATALOGUE = [
-    'Oil Change', 'Full Service', 'Chain & Sprocket', 'Brake Adjustment',
-    'Air Filter Clean', 'Engine Tune-up', 'Carburetor Clean', 'Clutch Repair',
-    'Gear Adjustment', 'Spark Plug', 'Wheel Alignment', 'Suspension Check',
-    'Battery Check', 'Battery Replacement', 'Headlight Fix', 'Body Work',
-    'Coolant Flush', 'Tyre Puncture Fix', 'Nitrogen Fill', 'Foam Wash',
+    'Brake Cables',
+    'Chain Replacement',
+    'Chain Sprocket Kit Replacement',
+    'Clutch Repair',
+    'Suspension & Shockups',
+    'Front Shockups Repair',
+    'Rear Shockups Repair (Only Replacement)',
+    'Gear Repair',
+    'Engine Repair',
+    'Disc Brake Pads',
+    'Brake Shoes',
+    'Speedo Meter (New)',
+    'Tachometer (New)',
+    'Head Light',
+    'Tail Light',
+    'Indicator',
+    'Battery',
+    'Horn',
+    'Carborator',
+    'RHS Switch',
+    'LHS Switch',
+    'Ignition Switch',
+    'Throttle Body',
+    'Brake Fluid Change',
+    'Brake Master Cylinder',
+    'Accelerator cable',
+    'Spark Plug',
+    'Only Servicing',
+    'Servicing & Oil Change',
 ];
 
 const SCOOTY_CATALOGUE = [
-    'Belt Change', 'CVT Service', 'Oil Change', 'Full Service',
-    'Brake Adjustment', 'Air Filter Clean', 'Spark Plug', 'Battery Check',
-    'Battery Replacement', 'Tyre Puncture Fix', 'Nitrogen Fill',
-    'Body Work', 'Headlight Fix', 'Suspension Check', 'Wheel Alignment',
-    'Foam Wash', 'Coolant Flush', 'Engine Tune-up', 'Fuel Injector Clean',
+    'Brake Cables',
+    'Chain Replacement',
+    'Chain & Sprocket Kit Replacement',
+    'Clutch Repair',
+    'Suspension & Shockups',
+    'Front Shockups Repair',
+    'Rear Shockups (Only New)',
+    'Gear Box Repair',
+    'Engine Repair',
+    'Disc Brake Pads',
+    'Brake Shoes',
+    'Speedo Meter',
+    'Head Light',
+    'Tail Light',
+    'Indicator',
+    'Battery Change',
+    'Horn',
+    'Carborator',
+    'RHS Switch',
+    'LHS Switch',
+    'Ignition Switch',
+    'Throttle Body',
+    'Brake Fluid Change',
+    'Brake Master Cylinder',
+    'Accelerator cable',
+    'Spark Plug',
+    'Only Servicing',
+    'Servicing & Oil Change',
 ];
 
 // ── Service Picker Modal ──────────────────────────────────────────────────────
@@ -196,6 +252,7 @@ function InfoField({
 
 // ── Main Screen ───────────────────────────────────────────────────────────────
 export default function OwnerAccount() {
+    const insets = useSafeAreaInsets();
     const router = useRouter();
 
     // ✅ Single clean destructure — no setUser, no setAuth
@@ -220,6 +277,11 @@ export default function OwnerAccount() {
 
     const [bikeServices, setBikeServices] = useState<string[]>([]);
     const [scootyServices, setScootyServices] = useState<string[]>([]);
+    const [images, setImages] = useState<string[]>([]);
+    const [showAddImageModal, setShowAddImageModal] = useState(false);
+    const [showUrlInput, setShowUrlInput] = useState(false);
+    const [imageUrlInput, setImageUrlInput] = useState('');
+    const [uploadingImage, setUploadingImage] = useState(false);
 
     const [editProfile, setEditProfile] = useState(false);
     const [editGarage, setEditGarage] = useState(false);
@@ -242,6 +304,14 @@ export default function OwnerAccount() {
             setBikeServices(g.services?.bike ?? []);
             setScootyServices(g.services?.scooty ?? []);
 
+            const storedImages = await getGarageStoredImages(g.id);
+            const combined = Array.from(new Set([
+                ...(g.images || []),
+                ...(g.image ? [g.image] : []),
+                ...storedImages,
+            ])).filter(Boolean);
+            setImages(combined);
+
             if (g.latitude && g.longitude) {
                 setLatitude(g.latitude);
                 setLongitude(g.longitude);
@@ -252,6 +322,103 @@ export default function OwnerAccount() {
         } finally {
             setLoading(false);
         }
+    };
+
+    const persistAndSyncImages = async (newImages: string[]) => {
+        setImages(newImages);
+        if (garage?.id) {
+            await saveGarageStoredImages(garage.id, newImages);
+            try {
+                await updateGarageInfo(garage.id, {
+                    images: newImages,
+                    image: newImages[0] || '',
+                });
+            } catch (err) {
+                console.warn('[Account] Backend image sync skipped:', err);
+            }
+        }
+    };
+
+    const handlePickFromGallery = async () => {
+        setUploadingImage(true);
+        try {
+            const result = await pickFromGallerySafe();
+            if (!result.canceled && result.assets && result.assets.length > 0) {
+                const pickedUris = result.assets.map((a) => a.uri);
+                const updated = Array.from(new Set([...images, ...pickedUris]));
+                await persistAndSyncImages(updated);
+                showToast(`${pickedUris.length} photo(s) added!`, 'success');
+                setShowAddImageModal(false);
+            }
+        } catch {
+            showToast('Failed to pick photo.', 'error');
+        } finally {
+            setUploadingImage(false);
+        }
+    };
+
+    const handleTakePhoto = async () => {
+        setUploadingImage(true);
+        try {
+            const result = await takePhotoSafe();
+            if (!result.canceled && result.assets && result.assets.length > 0) {
+                const newUri = result.assets[0].uri;
+                const updated = Array.from(new Set([...images, newUri]));
+                await persistAndSyncImages(updated);
+                showToast('Photo captured and added!', 'success');
+                setShowAddImageModal(false);
+            }
+        } catch {
+            showToast('Failed to capture photo.', 'error');
+        } finally {
+            setUploadingImage(false);
+        }
+    };
+
+    const handleAddUrl = async () => {
+        const trimmed = imageUrlInput.trim();
+        if (!trimmed) {
+            showToast('Please enter a valid image URL.', 'error');
+            return;
+        }
+        if (!trimmed.startsWith('http://') && !trimmed.startsWith('https://')) {
+            showToast('URL must start with http:// or https://', 'error');
+            return;
+        }
+        const updated = Array.from(new Set([...images, trimmed]));
+        await persistAndSyncImages(updated);
+        setImageUrlInput('');
+        setShowUrlInput(false);
+        setShowAddImageModal(false);
+        showToast('Image URL added!', 'success');
+    };
+
+    const handleDeleteImage = async (indexToDelete: number) => {
+        Alert.alert(
+            'Delete Photo',
+            'Are you sure you want to remove this photo?',
+            [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                    text: 'Delete',
+                    style: 'destructive',
+                    onPress: async () => {
+                        const updated = images.filter((_, i) => i !== indexToDelete);
+                        await persistAndSyncImages(updated);
+                        showToast('Photo removed.', 'info');
+                    },
+                },
+            ]
+        );
+    };
+
+    const handleSetAsCover = async (index: number) => {
+        if (index === 0) return;
+        const target = images[index];
+        const rest = images.filter((_, i) => i !== index);
+        const updated = [target, ...rest];
+        await persistAndSyncImages(updated);
+        showToast('Set as main cover photo!', 'success');
     };
 
     const handleFetchLocation = async () => {
@@ -360,7 +527,7 @@ export default function OwnerAccount() {
             <ScrollView style={styles.container} contentContainerStyle={styles.content}>
 
                 {/* Header */}
-                <View style={styles.header}>
+                <View style={[styles.header, { paddingTop: Math.max(insets.top + Spacing.xs, Spacing.md) }]}>
                     <Text style={styles.title}>{'Account'}</Text>
                 </View>
 
@@ -472,6 +639,64 @@ export default function OwnerAccount() {
                     )}
                 </SectionCard>
 
+                {/* Garage Photos */}
+                <View style={cardStyles.wrap}>
+                    <View style={cardStyles.header}>
+                        <View style={cardStyles.iconBox}>
+                            <Ionicons name="images-outline" size={16} color={Colors.textSecondary} />
+                        </View>
+                        <Text style={cardStyles.title}>{'Garage Photos (' + String(images.length) + ')'}</Text>
+                        <TouchableOpacity
+                            style={cardStyles.editBtn}
+                            onPress={() => setShowAddImageModal(true)}
+                        >
+                            <Ionicons name="add" size={16} color={Colors.primary} />
+                            <Text style={cardStyles.editBtnText}>{'Add'}</Text>
+                        </TouchableOpacity>
+                    </View>
+                    <View style={cardStyles.divider} />
+                    <View style={cardStyles.body}>
+                        {images.length === 0 ? (
+                            <TouchableOpacity
+                                style={styles.emptyPhotoBox}
+                                onPress={() => setShowAddImageModal(true)}
+                                activeOpacity={0.8}
+                            >
+                                <Ionicons name="camera-outline" size={32} color={Colors.textTertiary} />
+                                <Text style={styles.emptyPhotoTitle}>{'No garage photos yet'}</Text>
+                                <Text style={styles.emptyPhotoDesc}>{'Tap to add photos of your workshop'}</Text>
+                            </TouchableOpacity>
+                        ) : (
+                            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.accountPhotoScroll}>
+                                {images.map((uri, idx) => (
+                                    <View key={`${uri}_${idx}`} style={styles.accountPhotoWrap}>
+                                        <Image source={{ uri }} style={styles.accountPhotoThumb} resizeMode="cover" />
+                                        {idx === 0 && (
+                                            <View style={styles.accountCoverBadge}>
+                                                <Text style={styles.accountCoverText}>COVER</Text>
+                                            </View>
+                                        )}
+                                        <TouchableOpacity
+                                            style={styles.deletePhotoIcon}
+                                            onPress={() => handleDeleteImage(idx)}
+                                        >
+                                            <Ionicons name="trash" size={12} color="#fff" />
+                                        </TouchableOpacity>
+                                        {idx > 0 && (
+                                            <TouchableOpacity
+                                                style={styles.makeCoverBtn}
+                                                onPress={() => handleSetAsCover(idx)}
+                                            >
+                                                <Ionicons name="star" size={10} color="#92400E" />
+                                            </TouchableOpacity>
+                                        )}
+                                    </View>
+                                ))}
+                            </ScrollView>
+                        )}
+                    </View>
+                </View>
+
                 {/* Services Offered */}
                 <View style={cardStyles.wrap}>
                     <View style={cardStyles.header}>
@@ -570,6 +795,88 @@ export default function OwnerAccount() {
 
             </ScrollView>
 
+            {/* Add Image Modal */}
+            <Modal
+                visible={showAddImageModal}
+                transparent
+                animationType="slide"
+                onRequestClose={() => {
+                    setShowAddImageModal(false);
+                    setShowUrlInput(false);
+                }}
+            >
+                <Pressable
+                    style={styles.modalBackdrop}
+                    onPress={() => {
+                        setShowAddImageModal(false);
+                        setShowUrlInput(false);
+                    }}
+                >
+                    <Pressable style={styles.bottomSheetCard} onPress={(e) => e.stopPropagation()}>
+                        <View style={styles.sheetHandle} />
+                        <View style={styles.sheetHeader}>
+                            <Text style={styles.sheetTitle}>Add Garage Photo</Text>
+                            <TouchableOpacity onPress={() => setShowAddImageModal(false)}>
+                                <Ionicons name="close-circle-outline" size={24} color={Colors.textTertiary} />
+                            </TouchableOpacity>
+                        </View>
+
+                        {uploadingImage ? (
+                            <View style={{ paddingVertical: Spacing.xl, alignItems: 'center', gap: 10 }}>
+                                <ActivityIndicator size="large" color={Colors.primary} />
+                                <Text style={{ ...Typography.body, color: Colors.textSecondary }}>Processing photo...</Text>
+                            </View>
+                        ) : !showUrlInput ? (
+                            <View style={styles.pickerOptionsGrid}>
+                                <TouchableOpacity style={styles.pickerOptionCard} onPress={handleTakePhoto} activeOpacity={0.8}>
+                                    <View style={[styles.pickerIconBox, { backgroundColor: Colors.primaryLight }]}>
+                                        <Ionicons name="camera" size={26} color={Colors.primary} />
+                                    </View>
+                                    <Text style={styles.pickerOptionTitle}>Take Photo</Text>
+                                    <Text style={styles.pickerOptionSub}>Open Camera</Text>
+                                </TouchableOpacity>
+
+                                <TouchableOpacity style={styles.pickerOptionCard} onPress={handlePickFromGallery} activeOpacity={0.8}>
+                                    <View style={[styles.pickerIconBox, { backgroundColor: '#EFF6FF' }]}>
+                                        <Ionicons name="images" size={26} color="#1D4ED8" />
+                                    </View>
+                                    <Text style={styles.pickerOptionTitle}>Choose Photos</Text>
+                                    <Text style={styles.pickerOptionSub}>From Gallery</Text>
+                                </TouchableOpacity>
+
+                                <TouchableOpacity style={styles.pickerOptionCard} onPress={() => setShowUrlInput(true)} activeOpacity={0.8}>
+                                    <View style={[styles.pickerIconBox, { backgroundColor: '#F0FDFA' }]}>
+                                        <Ionicons name="link" size={26} color="#0D9488" />
+                                    </View>
+                                    <Text style={styles.pickerOptionTitle}>Paste URL</Text>
+                                    <Text style={styles.pickerOptionSub}>Web Link</Text>
+                                </TouchableOpacity>
+                            </View>
+                        ) : (
+                            <View style={styles.urlInputWrap}>
+                                <TextInput
+                                    style={styles.urlTextInput}
+                                    placeholder="https://example.com/photo.jpg"
+                                    placeholderTextColor={Colors.textTertiary}
+                                    value={imageUrlInput}
+                                    onChangeText={setImageUrlInput}
+                                    autoCapitalize="none"
+                                    keyboardType="url"
+                                />
+                                <View style={styles.urlButtonRow}>
+                                    <TouchableOpacity style={styles.urlCancelBtn} onPress={() => setShowUrlInput(false)}>
+                                        <Text style={styles.urlCancelText}>Back</Text>
+                                    </TouchableOpacity>
+                                    <TouchableOpacity style={styles.urlSubmitBtn} onPress={handleAddUrl}>
+                                        <Text style={styles.urlSubmitText}>Add Photo</Text>
+                                    </TouchableOpacity>
+                                </View>
+                            </View>
+                        )}
+                    </Pressable>
+                </Pressable>
+            </Modal>
+
             <Toast
                 visible={toast.visible}
                 message={toast.message}
@@ -609,7 +916,7 @@ const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: Colors.bg },
     content: { paddingBottom: 40, gap: Spacing.sm },
 
-    header: { backgroundColor: Colors.surface, paddingHorizontal: Spacing.md, paddingTop: 56, paddingBottom: Spacing.md, borderBottomWidth: 1, borderBottomColor: Colors.borderLight },
+    header: { backgroundColor: Colors.surface, paddingHorizontal: Spacing.md, paddingBottom: Spacing.md, borderBottomWidth: 1, borderBottomColor: Colors.borderLight },
     title: { ...Typography.h1, color: Colors.textPrimary },
 
     profileCard: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md, backgroundColor: Colors.surface, padding: Spacing.md, borderRadius: Radius.lg, borderWidth: 1, borderColor: Colors.border, ...Shadow.sm, marginHorizontal: Spacing.md },
@@ -652,4 +959,79 @@ const styles = StyleSheet.create({
     locationCoords: { ...Typography.overline, color: '#065F46', marginTop: 2 },
     refetchBtn: { width: 34, height: 34, borderRadius: Radius.sm, backgroundColor: Colors.surface, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: Colors.primary },
     locationHint: { ...Typography.caption, color: Colors.textTertiary, fontStyle: 'italic' },
+    // ── Photo Gallery Styles ──────────────────────────────────────────────────
+    emptyPhotoBox: {
+        alignItems: 'center',
+        padding: Spacing.lg,
+        backgroundColor: Colors.surfaceAlt,
+        borderRadius: Radius.md,
+        borderWidth: 1,
+        borderColor: Colors.border,
+        borderStyle: 'dashed',
+        gap: 4,
+        marginTop: Spacing.sm,
+    },
+    emptyPhotoTitle: { ...Typography.body, fontWeight: '700', color: Colors.textSecondary },
+    emptyPhotoDesc: { ...Typography.caption, color: Colors.textTertiary },
+    accountPhotoScroll: { gap: Spacing.sm, paddingVertical: Spacing.sm },
+    accountPhotoWrap: {
+        width: 100,
+        height: 80,
+        borderRadius: Radius.md,
+        overflow: 'hidden',
+        position: 'relative',
+        borderWidth: 1,
+        borderColor: Colors.border,
+    },
+    accountPhotoThumb: { width: '100%', height: '100%' },
+    accountCoverBadge: {
+        position: 'absolute',
+        top: 4,
+        left: 4,
+        backgroundColor: '#FEF3C7',
+        paddingHorizontal: 5,
+        paddingVertical: 1,
+        borderRadius: Radius.full,
+    },
+    accountCoverText: { fontSize: 8, fontWeight: '800', color: '#92400E' },
+    deletePhotoIcon: {
+        position: 'absolute',
+        top: 4,
+        right: 4,
+        backgroundColor: 'rgba(239,68,68,0.85)',
+        width: 20,
+        height: 20,
+        borderRadius: 10,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    makeCoverBtn: {
+        position: 'absolute',
+        bottom: 4,
+        right: 4,
+        backgroundColor: '#FDE68A',
+        width: 20,
+        height: 20,
+        borderRadius: 10,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    // ── Modal Styles ──────────────────────────────────────────────────────────
+    modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+    bottomSheetCard: { backgroundColor: Colors.surface, borderTopLeftRadius: Radius.xl, borderTopRightRadius: Radius.xl, padding: Spacing.lg, paddingBottom: 40, gap: Spacing.md, ...Shadow.lg },
+    sheetHandle: { width: 40, height: 4, borderRadius: 2, backgroundColor: Colors.border, alignSelf: 'center', marginBottom: Spacing.xs },
+    sheetHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+    sheetTitle: { ...Typography.h2, color: Colors.textPrimary },
+    pickerOptionsGrid: { flexDirection: 'row', gap: Spacing.sm, marginTop: Spacing.sm },
+    pickerOptionCard: { flex: 1, backgroundColor: Colors.surfaceAlt, borderRadius: Radius.lg, padding: Spacing.md, alignItems: 'center', borderWidth: 1, borderColor: Colors.borderLight, gap: 4 },
+    pickerIconBox: { width: 48, height: 48, borderRadius: Radius.md, alignItems: 'center', justifyContent: 'center', marginBottom: 4 },
+    pickerOptionTitle: { fontSize: 12, fontWeight: '700', color: Colors.textPrimary, textAlign: 'center' },
+    pickerOptionSub: { fontSize: 10, color: Colors.textTertiary, textAlign: 'center' },
+    urlInputWrap: { gap: Spacing.sm, marginTop: Spacing.sm },
+    urlTextInput: { backgroundColor: Colors.surfaceAlt, borderWidth: 1, borderColor: Colors.border, borderRadius: Radius.md, paddingHorizontal: Spacing.md, paddingVertical: 12, fontSize: 14, color: Colors.textPrimary },
+    urlButtonRow: { flexDirection: 'row', gap: Spacing.sm, marginTop: Spacing.xs },
+    urlCancelBtn: { flex: 1, backgroundColor: Colors.surfaceAlt, borderRadius: Radius.md, paddingVertical: 12, alignItems: 'center' },
+    urlCancelText: { fontWeight: '600', color: Colors.textSecondary },
+    urlSubmitBtn: { flex: 2, backgroundColor: Colors.primary, borderRadius: Radius.md, paddingVertical: 12, alignItems: 'center' },
+    urlSubmitText: { fontWeight: '700', color: '#ffffff' },
 });

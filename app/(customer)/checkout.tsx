@@ -6,6 +6,7 @@ import {
     TextInput, ActivityIndicator, Alert,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useCart } from '../../context/CartContext';
 import { createBooking } from '../../utils/services/bookingService';
@@ -65,6 +66,7 @@ function getRefNode() {
 // COMPONENT
 // ─────────────────────────────────────────────────────────────────────────────
 export default function CheckoutScreen() {
+    const insets = useSafeAreaInsets();
     const router = useRouter();
     const { setBookSlotShouldReset } = useUIStore();
     const { items, clearCart } = useCart();
@@ -234,7 +236,7 @@ export default function CheckoutScreen() {
         <View style={styles.root}>
 
             {/* ── Header ───────────────────────────────────────────────────── */}
-            <View style={styles.header}>
+            <View style={[styles.header, { paddingTop: Math.max(insets.top + Spacing.xs, Spacing.md) }]}>
                 <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
                     <Ionicons name="chevron-back" size={22} color={Colors.textPrimary} />
                 </TouchableOpacity>
@@ -603,7 +605,7 @@ const styles = StyleSheet.create({
     root: { flex: 1, backgroundColor: Colors.bg },
 
     // ── Header ────────────────────────────────────────────────────────────────
-    header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: Colors.surface, paddingHorizontal: Spacing.md, paddingTop: 56, paddingBottom: Spacing.md, borderBottomWidth: 1, borderBottomColor: Colors.borderLight },
+    header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: Colors.surface, paddingHorizontal: Spacing.md, paddingBottom: Spacing.md, borderBottomWidth: 1, borderBottomColor: Colors.borderLight },
     backBtn: { width: 36, height: 36, borderRadius: Radius.sm, backgroundColor: Colors.bg, alignItems: 'center', justifyContent: 'center' },
     headerTitle: { fontFamily: 'monospace', fontSize: 14, fontWeight: '800', color: Colors.textPrimary, letterSpacing: 1.5 },
     helpBtn: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },

@@ -1,11 +1,11 @@
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import {
     View, Text, StyleSheet, FlatList,
     TouchableOpacity, ActivityIndicator,
-    Modal, ScrollView, Pressable,
-    TextInput, Animated
+    ScrollView, TextInput, Animated, Modal, Linking
 } from 'react-native';
-import { useFocusEffect } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { getMyGarage } from '../../utils/services/garageService';
 import {
@@ -68,9 +68,9 @@ function formatDisplayDate(date: string): string {
     });
 }
 
-// Update every setSelected(null) call to also reset
-
 export default function OwnerBookingsScreen() {
+    const insets = useSafeAreaInsets();
+    const params = useLocalSearchParams<{ filter?: string }>();
     const { toast, showToast, hideToast } = useToast();
 
     const [bookings, setBookings] = useState<Booking[]>([]);
@@ -82,34 +82,50 @@ export default function OwnerBookingsScreen() {
     const [rejectNote, setRejectNote] = useState('');
     const [showRejectInput, setShowRejectInput] = useState(false);
 
-    // Add alongside other useState declarations
     const slideAnim = useRef(new Animated.Value(0)).current;
 
-
-
-    useFocusEffect(useCallback(() => { load(); }, []));
-
-    const load = async () => {
-        setLoading(true);
+    const load = useCallback(async (isSilent = false) => {
+        if (!isSilent) setLoading(true);
         try {
             const data = await getGarageBookings();
             const safe = Array.isArray(data) ? data : [];
             setBookings(safe);
-            applyFilter(activeFilter, safe);
+            const targetFilter = (params.filter && FILTER_TABS.some(t => t.key === params.filter))
+                ? params.filter
+                : activeFilter;
+            applyFilter(targetFilter, safe);
         } catch (e: any) {
-            showToast(e?.response?.data?.detail ?? 'Failed to load bookings.', 'error');
+            if (!isSilent) {
+                showToast(e?.response?.data?.detail ?? 'Failed to load bookings.', 'error');
+            }
             setBookings([]); setFiltered([]);
         } finally {
-            setLoading(false);
+            if (!isSilent) setLoading(false);
         }
-    };
+    }, [params.filter, activeFilter, showToast]);
 
-    const closeModal = () => {
+    useFocusEffect(
+        useCallback(() => {
+            load(false);
+            const interval = setInterval(() => {
+                load(true);
+            }, 12000);
+            return () => clearInterval(interval);
+        }, [load])
+    );
+
+    useEffect(() => {
+        if (params.filter && FILTER_TABS.some(t => t.key === params.filter)) {
+            setActiveFilter(params.filter);
+            applyFilter(params.filter, bookings);
+        }
+    }, [params.filter]);
+
+    const closeSheet = () => {
         setSelected(null);
         setRejectNote('');
         setShowRejectInput(false);
     };
-
 
     const applyFilter = (key: string, source?: Booking[]) => {
         const list = Array.isArray(source) ? source : bookings;
@@ -133,7 +149,7 @@ export default function OwnerBookingsScreen() {
                 case 'complete': await completeBooking(booking.id); break;
             }
             showToast(`Booking ${action}ed successfully.`, 'success');
-            closeModal();
+            closeSheet();
             load();
         } catch (e: any) {
             showToast(e?.response?.data?.detail ?? `Failed to ${action} booking.`, 'error');
@@ -158,8 +174,11 @@ export default function OwnerBookingsScreen() {
                             {item.customer_name?.charAt(0).toUpperCase() ?? '?'}
                         </Text>
                     </View>
-                    <View>
+                    <View style={{ flex: 1 }}>
                         <Text style={styles.customerName} numberOfLines={1}>{item.customer_name}</Text>
+                        {item.customer_phone ? (
+                            <Text style={styles.phoneSubText} numberOfLines={1}>{item.customer_phone}</Text>
+                        ) : null}
                         <View style={styles.dateRow}>
                             <Ionicons name="calendar-outline" size={12} color={Colors.textTertiary} />
                             <Text style={styles.dateText}>{formatDisplayDate(item.date)}</Text>
@@ -167,6 +186,15 @@ export default function OwnerBookingsScreen() {
                     </View>
                 </View>
                 <View style={styles.cardRight}>
+                    {item.customer_phone ? (
+                        <TouchableOpacity
+                            style={styles.callQuickBtn}
+                            onPress={() => Linking.openURL(`tel:${item.customer_phone}`)}
+                            activeOpacity={0.8}
+                        >
+                            <Ionicons name="call" size={15} color="#fff" />
+                        </TouchableOpacity>
+                    ) : null}
                     <View style={[styles.statusPill, { backgroundColor: cfg.bg }]}>
                         <Ionicons name={cfg.icon} size={11} color={cfg.color} />
                         <Text style={[styles.statusPillText, { color: cfg.color }]}>{cfg.label}</Text>
@@ -179,10 +207,18 @@ export default function OwnerBookingsScreen() {
 
     const pendingCount = bookings.filter((b) => b.status === 'pending').length;
 
+    // ── Derive detail-sheet data from selected booking ────────────────────────
+    const cfg = selected
+        ? (STATUS_CONFIG[selected.status] ?? STATUS_CONFIG.pending)
+        : STATUS_CONFIG.pending;
+    const actions = selected
+        ? (STATUS_ACTIONS[selected.status] ?? [])
+        : [];
+
     return (
         <View style={styles.container}>
             {/* ── Header ─────────────────────────────────────────────────────── */}
-            <View style={styles.header}>
+            <View style={[styles.header, { paddingTop: Math.max(insets.top + Spacing.xs, Spacing.md) }]}>
                 <View>
                     <Text style={styles.headerTitle}>Bookings</Text>
                     <Text style={styles.headerSub}>
@@ -245,30 +281,30 @@ export default function OwnerBookingsScreen() {
                 }
             />
 
-            {/* ── Detail Modal ───────────────────────────────────────────────── */}
+            {/* ── Detail BottomSheet ──────────────────────────────────────────── */}
             <Modal
                 visible={!!selected}
-                transparent
-                animationType="fade"
-                // onRequestClose={() => setSelected(null)}
-                onRequestClose={closeModal}
+                animationType="slide"
+                transparent={true}
+                onRequestClose={closeSheet}
             >
-                {/* <Pressable style={styles.modalOverlay} onPress={() => setSelected(null)} /> */}
-                <Pressable style={styles.modalOverlay} onPress={closeModal} />
-                {selected && (() => {
-                    const cfg = STATUS_CONFIG[selected.status] ?? STATUS_CONFIG.pending;
-                    const actions = STATUS_ACTIONS[selected.status] ?? [];
-                    return (
-                        <View style={styles.modalSheet}>
-                            <View style={styles.modalHandle} />
+                <View style={styles.modalOverlay}>
+                    <TouchableOpacity
+                        style={styles.modalBackdrop}
+                        activeOpacity={1}
+                        onPress={closeSheet}
+                    />
+                    <View style={styles.sheetInner}>
+                        <View style={styles.modalHandle} />
 
-                            <View style={styles.modalHeader}>
-                                <Text style={styles.modalTitle}>Booking Details</Text>
-                                <TouchableOpacity style={styles.modalCloseBtn} onPress={() => closeModal()}>
-                                    <Ionicons name="close" size={20} color={Colors.textPrimary} />
-                                </TouchableOpacity>
-                            </View>
+                        <View style={styles.modalHeader}>
+                            <Text style={styles.modalTitle}>Booking Details</Text>
+                            <TouchableOpacity style={styles.modalCloseBtn} onPress={closeSheet}>
+                                <Ionicons name="close" size={20} color={Colors.textPrimary} />
+                            </TouchableOpacity>
+                        </View>
 
+                        {selected && (
                             <ScrollView contentContainerStyle={styles.modalContent}>
                                 {/* Status banner */}
                                 <View style={[styles.statusBanner, { backgroundColor: cfg.bg }]}>
@@ -276,17 +312,29 @@ export default function OwnerBookingsScreen() {
                                     <Text style={[styles.statusBannerText, { color: cfg.color }]}>{cfg.label}</Text>
                                 </View>
 
-                                {/* Customer info */}
+                                {/* Customer info — with quick call button */}
                                 <View style={styles.customerCard}>
                                     <View style={[styles.avatarBox, styles.avatarBoxLg]}>
                                         <Text style={[styles.avatarText, styles.avatarTextLg]}>
                                             {selected.customer_name?.charAt(0).toUpperCase()}
                                         </Text>
                                     </View>
-                                    <View>
+                                    <View style={{ flex: 1 }}>
                                         <Text style={styles.customerNameLg}>{selected.customer_name}</Text>
-                                        <Text style={styles.customerPhoneText}>{selected.customer_phone}</Text>
+                                        <Text style={styles.customerPhoneText}>
+                                            {selected.customer_phone || 'No phone provided'}
+                                        </Text>
                                     </View>
+                                    {selected.customer_phone ? (
+                                        <TouchableOpacity
+                                            style={styles.callDetailBtn}
+                                            onPress={() => Linking.openURL(`tel:${selected.customer_phone}`)}
+                                            activeOpacity={0.8}
+                                        >
+                                            <Ionicons name="call" size={16} color="#fff" />
+                                            <Text style={styles.callDetailBtnText}>Call</Text>
+                                        </TouchableOpacity>
+                                    ) : null}
                                 </View>
 
                                 {/* Booking details */}
@@ -316,11 +364,9 @@ export default function OwnerBookingsScreen() {
                                     ))}
                                 </View>
 
-                                {/* Action buttons */}
                                 {/* Action buttons + reject note input */}
                                 {actions.length > 0 && (
                                     <View style={styles.actionsWrap}>
-
                                         {showRejectInput ? (
                                             // ── Reject note input ────────────────────────────────
                                             <View style={styles.rejectInputWrap}>
@@ -385,14 +431,12 @@ export default function OwnerBookingsScreen() {
                                                 )}
                                             </View>
                                         )}
-
                                     </View>
                                 )}
-
                             </ScrollView>
-                        </View>
-                    );
-                })()}
+                        )}
+                    </View>
+                </View>
             </Modal>
 
             <Toast visible={toast.visible} message={toast.message} type={toast.type} onHide={hideToast} />
@@ -405,7 +449,7 @@ const styles = StyleSheet.create({
     header: {
         flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
         backgroundColor: Colors.surface, paddingHorizontal: Spacing.md,
-        paddingTop: 56, paddingBottom: Spacing.md,
+        paddingBottom: Spacing.md,
         borderBottomWidth: 1, borderBottomColor: Colors.borderLight,
     },
     headerTitle: { ...Typography.h1, color: Colors.textPrimary },
@@ -444,12 +488,22 @@ const styles = StyleSheet.create({
     statusPill: { flexDirection: 'row', alignItems: 'center', gap: 3, paddingHorizontal: Spacing.sm, paddingVertical: 5, borderRadius: Radius.full },
     statusPillText: { fontSize: 10, fontWeight: '700' },
 
-    // ── Modal ─────────────────────────────────────────────────────────
-    modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)' },
-    modalSheet: {
-        backgroundColor: Colors.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24,
-        paddingBottom: 40, maxHeight: '88%',
-        position: 'absolute', bottom: 0, left: 0, right: 0,
+    // ── BottomSheet ───────────────────────────────────────────────────
+    modalOverlay: {
+        flex: 1,
+        justifyContent: 'flex-end',
+    },
+    modalBackdrop: {
+        ...StyleSheet.absoluteFillObject,
+        backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    },
+    sheetInner: {
+        backgroundColor: Colors.surface,
+        borderTopLeftRadius: Radius.xl,
+        borderTopRightRadius: Radius.xl,
+        maxHeight: '85%',
+        paddingBottom: Spacing.xl,
+        ...Shadow.lg,
     },
     modalHandle: { width: 40, height: 4, borderRadius: 2, backgroundColor: Colors.borderLight, alignSelf: 'center', marginTop: Spacing.sm },
     modalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: Spacing.md, borderBottomWidth: 1, borderBottomColor: Colors.borderLight },
@@ -462,7 +516,20 @@ const styles = StyleSheet.create({
 
     customerCard: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md, backgroundColor: Colors.surfaceAlt, padding: Spacing.md, borderRadius: Radius.lg },
     customerNameLg: { ...Typography.h3, color: Colors.textPrimary },
-    customerPhoneText: { ...Typography.caption, color: Colors.textTertiary, marginTop: 3 },
+    customerPhoneText: { ...Typography.caption, color: Colors.textSecondary, marginTop: 2 },
+    phoneSubText: { ...Typography.caption, color: Colors.textSecondary, marginTop: 1 },
+    callQuickBtn: {
+        width: 32, height: 32, borderRadius: 16,
+        backgroundColor: Colors.success,
+        alignItems: 'center', justifyContent: 'center',
+    },
+    callDetailBtn: {
+        flexDirection: 'row', alignItems: 'center', gap: 6,
+        backgroundColor: Colors.success,
+        paddingHorizontal: Spacing.md, paddingVertical: Spacing.xs + 2,
+        borderRadius: Radius.full,
+    },
+    callDetailBtnText: { ...Typography.button, color: '#fff', fontSize: 13, fontWeight: '700' },
 
     detailCard: { borderRadius: Radius.lg, borderWidth: 1, borderColor: Colors.border, overflow: 'hidden' },
     detailRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md, padding: Spacing.md },
@@ -479,7 +546,6 @@ const styles = StyleSheet.create({
     empty: { alignItems: 'center', marginTop: 60, gap: Spacing.sm, paddingHorizontal: Spacing.xl },
     emptyTitle: { ...Typography.h3, color: Colors.textSecondary },
     emptyDesc: { ...Typography.body, color: Colors.textTertiary, textAlign: 'center' },
-    // Add to StyleSheet.create({})
     actionsWrap: { gap: Spacing.sm },
 
     rejectInputWrap: {

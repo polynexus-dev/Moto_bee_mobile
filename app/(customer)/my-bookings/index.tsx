@@ -1,5 +1,6 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useFocusEffect, useRouter } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import React, { useCallback, useRef, useState } from 'react';
 import {
     ActivityIndicator,
@@ -67,6 +68,7 @@ function formatDisplayDate(date: string): string {
 }
 
 export default function BookingsScreen() {
+    const insets = useSafeAreaInsets();
     const router = useRouter();
     const { toast, showToast, hideToast } = useToast();
 
@@ -219,7 +221,7 @@ export default function BookingsScreen() {
     return (
         <View style={styles.container}>
             {/* ── Header ─────────────────────────────────────────────────────── */}
-            <View style={styles.header}>
+            <View style={[styles.header, { paddingTop: Math.max(insets.top + Spacing.xs, Spacing.md) }]}>
                 <Text style={styles.headerTitle}>My Bookings</Text>
                 <Text style={styles.headerSub}>{bookings.length} booking{bookings.length !== 1 ? 's' : ''} total</Text>
             </View>
@@ -444,7 +446,7 @@ const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: Colors.bg },
     header: {
         backgroundColor: Colors.surface, paddingHorizontal: Spacing.md,
-        paddingTop: 56, paddingBottom: Spacing.md,
+        paddingBottom: Spacing.md,
         borderBottomWidth: 1, borderBottomColor: Colors.borderLight,
     },
     headerTitle: { ...Typography.h1, color: Colors.textPrimary },

@@ -9,7 +9,7 @@ import {
     Animated, Dimensions, Platform, Alert,
     KeyboardAvoidingView, StatusBar,
 } from 'react-native';
-import MapView, { Region, PROVIDER_DEFAULT, Marker } from 'react-native-maps';
+import { WebView } from 'react-native-webview';
 import * as Location from 'expo-location';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -17,6 +17,228 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors, Typography, Spacing, Radius, Shadow } from '../../../constants/theme';
 import { useLocationStore } from '../../../store/locationStore';
 import { CreateLocationProfile, LocationProfile } from '../../../utils/services/locationProfileService';
+
+type Region = {
+    latitude: number;
+    longitude: number;
+    latitudeDelta: number;
+    longitudeDelta: number;
+};
+
+const LEAFLET_HTML = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  <style>
+    body { margin: 0; padding: 0; }
+    #map { height: 100vh; width: 100vw; }
+    .leaflet-control-zoom { display: none !important; }
+    .leaflet-control-attribution { font-size: 8px !important; }
+    @keyframes pulse {
+      0% { transform: scale(0.6); opacity: 1; }
+      100% { transform: scale(2.4); opacity: 0; }
+    }
+    .gps-marker {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+    .gps-dot {
+      background-color: #2563EB;
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      border: 2px solid white;
+      box-shadow: 0 0 5px rgba(0,0,0,0.3);
+      z-index: 10;
+    }
+    .gps-pulse {
+      position: absolute;
+      background-color: rgba(37, 99, 235, 0.4);
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      animation: pulse 2s infinite ease-out;
+      z-index: 1;
+    }
+    .selected-marker-container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    .selected-marker-bubble {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 6px;
+      border-radius: 50%;
+      border-width: 2px;
+      border-style: solid;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+    }
+    .selected-marker-pointer {
+      width: 0;
+      height: 0;
+      border-left: 5px solid transparent;
+      border-right: 5px solid transparent;
+      border-top-width: 6px;
+      border-top-style: solid;
+      margin-top: -1px;
+    }
+    .locate-btn {
+      position: absolute;
+      bottom: 80px;
+      right: 16px;
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      background-color: white;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      z-index: 1000;
+      cursor: pointer;
+      border: none;
+      outline: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .locate-btn:active {
+      background-color: #EFEFEF;
+    }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <button class="locate-btn" id="locateBtn" type="button">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#FF6B35" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12" cy="12" r="7"></circle>
+      <line x1="12" y1="1" x2="12" y2="4"></line>
+      <line x1="12" y1="20" x2="12" y2="23"></line>
+      <line x1="1" y1="12" x2="4" y2="12"></line>
+      <line x1="20" y1="12" x2="23" y2="12"></line>
+      <circle cx="12" cy="12" r="1" fill="#FF6B35"></circle>
+    </svg>
+  </button>
+  <script>
+    var map = L.map('map', {
+      zoomControl: false,
+      attributionControl: false
+    }).setView([21.1458, 79.0882], 14);
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19
+    }).addTo(map);
+
+    var userMarker = null;
+    var selectedMarker = null;
+    var isPanningProgrammatically = false;
+
+    // Send coordinates when pan ends
+    map.on('moveend', function() {
+      if (isPanningProgrammatically) {
+        isPanningProgrammatically = false;
+        return;
+      }
+      var center = map.getCenter();
+      var message = {
+        type: 'onRegionChangeComplete',
+        latitude: center.lat,
+        longitude: center.lng,
+        latitudeDelta: 0.012,
+        longitudeDelta: 0.012
+      };
+      window.ReactNativeWebView.postMessage(JSON.stringify(message));
+    });
+
+    // Message handler — works on both iOS (window) and Android (document)
+    function handleMessage(event) {
+      try {
+        var raw = (typeof event.data === 'string') ? event.data : JSON.stringify(event.data);
+        var data = JSON.parse(raw);
+        if (data.type === 'animateToRegion') {
+          isPanningProgrammatically = true;
+          map.setView([data.latitude, data.longitude], data.zoom || 15, { animate: true, duration: 0.6 });
+        } else if (data.type === 'updateUserLocation') {
+          var userIcon = L.divIcon({
+            className: 'gps-marker',
+            html: "<div class='gps-pulse'></div><div class='gps-dot'></div>",
+            iconSize: [24, 24],
+            iconAnchor: [12, 12]
+          });
+          
+          if (userMarker) {
+            userMarker.setLatLng([data.latitude, data.longitude]);
+          } else {
+            userMarker = L.marker([data.latitude, data.longitude], { icon: userIcon }).addTo(map);
+          }
+          
+          if (data.follow) {
+            isPanningProgrammatically = true;
+            map.setView([data.latitude, data.longitude], 15, { animate: true });
+          }
+        } else if (data.type === 'updateSelectedMarker') {
+          if (selectedMarker) {
+            map.removeLayer(selectedMarker);
+            selectedMarker = null;
+          }
+          if (data.marker) {
+            var color = '#FF6B35';
+            var bg = '#FFF4F0';
+            var iconName = '📍';
+            
+            if (data.marker.type === 'home') {
+              color = '#16A34A';
+              bg = '#DCFCE7';
+              iconName = '🏠';
+            } else if (data.marker.type === 'office') {
+              color = '#2563EB';
+              bg = '#DBEAFE';
+              iconName = '💼';
+            }
+            
+            var customIcon = L.divIcon({
+              className: 'custom-selected-marker',
+              html: "<div class='selected-marker-container'>" +
+                    "  <div class='selected-marker-bubble' style='background-color: " + bg + "; border-color: " + color + ";'>" +
+                    "    <span style='font-size: 13px;'>" + iconName + "</span>" +
+                    "  </div>" +
+                    "  <div class='selected-marker-pointer' style='border-top-color: " + color + ";'></div>" +
+                    "</div>",
+              iconSize: [32, 42],
+              iconAnchor: [16, 42]
+            });
+            
+            selectedMarker = L.marker([data.marker.latitude, data.marker.longitude], { icon: customIcon }).addTo(map);
+          }
+        }
+      } catch (e) {
+        // ignore
+      }
+    }
+
+    // Register on both window (iOS) and document (Android)
+    window.addEventListener('message', handleMessage);
+    document.addEventListener('message', handleMessage);
+
+    // Locate button action
+    document.getElementById('locateBtn').onclick = function() {
+      if (userMarker) {
+        map.setView(userMarker.getLatLng(), 15, { animate: true });
+      } else {
+        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'requestLocation' }));
+      }
+    };
+
+    // Notify React Native that webview has loaded
+    window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'ready' }));
+  </script>
+</body>
+</html>
+`;
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type AddressType = 'home' | 'office' | 'other';
@@ -64,7 +286,7 @@ async function reverseGeocode(lat: number, lng: number): Promise<string> {
 export default function LocationScreen() {
     const router = useRouter();
     const insets = useSafeAreaInsets();
-    const mapRef = useRef<MapView>(null);
+    const mapRef = useRef<WebView>(null);
     const { onboarding } = useLocalSearchParams<{ onboarding?: string }>();
 
     // ── Zustand store ─────────────────────────────────────────────────────────
@@ -95,10 +317,6 @@ export default function LocationScreen() {
         setMode(nextMode);
     }, [mapHeightAnim]);
 
-    // ── ✅ FIX: Uncontrolled region — use ref instead of state for MapView ────
-    // The jitter was caused by passing `region` as a controlled prop, which fights
-    // with the map's internal animation. We track it in a ref only, and only call
-    // setRegion (state) when we NEED to programmatically fly the camera.
     const regionRef = useRef<Region>(DEFAULT_REGION);
 
     // ✅ Tracks which profile's marker to show on map
@@ -109,13 +327,11 @@ export default function LocationScreen() {
         type: AddressType;
     } | null>(null);
 
-    // ✅ This state is ONLY used for programmatic camera moves (animateToRegion).
-    // It is NOT passed as the `region` prop to MapView.
     const [pinAddress, setPinAddress] = useState('');
     const [geocoding, setGeocoding] = useState(false);
     const geocodeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-    // ✅ Only update the ref — never set state here to avoid re-render loop
+    // Only update the ref — never set state here to avoid re-render loop
     const handleRegionChangeComplete = useCallback((r: Region) => {
         regionRef.current = r;
         if (mode !== 'picking' && mode !== 'fullscreen') return;
@@ -128,10 +344,22 @@ export default function LocationScreen() {
         }, 600);
     }, [mode]);
 
-    // ── Current location ──────────────────────────────────────────────────────
+    // ── WebView Animate helper ───────────────────────────────────────────────
+    const animateToRegion = useCallback((r: Region) => {
+        if (mapRef.current) {
+            mapRef.current.postMessage(JSON.stringify({
+                type: 'animateToRegion',
+                latitude: r.latitude,
+                longitude: r.longitude,
+                zoom: r.latitudeDelta < 0.01 ? 16 : 14,
+            }));
+        }
+    }, []);
+
+    // ── Current location manual trigger ────────────────────────────────────────
     const [detectingLocation, setDetectingLocation] = useState(false);
 
-    const handleDetectCurrentLocation = async () => {
+    const handleDetectCurrentLocation = useCallback(async () => {
         setDetectingLocation(true);
         try {
             const { status } = await Location.requestForegroundPermissionsAsync();
@@ -147,9 +375,19 @@ export default function LocationScreen() {
                 latitude, longitude,
                 latitudeDelta: 0.012, longitudeDelta: 0.012,
             };
-            // ✅ Update ref first, then animate camera — no state flicker
             regionRef.current = newRegion;
-            mapRef.current?.animateToRegion(newRegion, 800);
+            
+            // Animate and mark in webview
+            animateToRegion(newRegion);
+            if (mapRef.current) {
+                mapRef.current.postMessage(JSON.stringify({
+                    type: 'updateUserLocation',
+                    latitude,
+                    longitude,
+                    follow: true,
+                }));
+            }
+
             if (mode === 'picking' || mode === 'fullscreen') {
                 setGeocoding(true);
                 setPinAddress(await reverseGeocode(latitude, longitude));
@@ -160,7 +398,131 @@ export default function LocationScreen() {
         } finally {
             setDetectingLocation(false);
         }
-    };
+    }, [mode, animateToRegion]);
+
+    // ── User location tracking ────────────────────────────────────────────────
+    const [userLoc, setUserLoc] = useState<{ latitude: number; longitude: number } | null>(null);
+    // Ref so handleWebMessage always has fresh coords without stale closure
+    const userLocRef = useRef<{ latitude: number; longitude: number } | null>(null);
+    // Ref to track if WebView is ready to receive messages
+    const webviewReadyRef = useRef(false);
+
+    const sendUserLocToMap = useCallback((lat: number, lng: number, follow = false) => {
+        if (mapRef.current) {
+            mapRef.current.postMessage(JSON.stringify({
+                type: 'updateUserLocation',
+                latitude: lat,
+                longitude: lng,
+                follow,
+            }));
+        }
+    }, []);
+
+    useEffect(() => {
+        let subscription: Location.LocationSubscription | null = null;
+
+        const startWatching = async () => {
+            try {
+                const { status } = await Location.requestForegroundPermissionsAsync();
+                if (status !== 'granted') return;
+
+                // Get an immediate fix first so we have coords before 'ready' fires
+                try {
+                    const firstPos = await Location.getCurrentPositionAsync({
+                        accuracy: Location.Accuracy.Balanced,
+                    });
+                    const { latitude, longitude } = firstPos.coords;
+                    userLocRef.current = { latitude, longitude };
+                    setUserLoc({ latitude, longitude });
+                    // If webview already ready, push immediately
+                    if (webviewReadyRef.current) {
+                        sendUserLocToMap(latitude, longitude, true);
+                    }
+                } catch { /* ignore — watchPosition will cover it */ }
+
+                subscription = await Location.watchPositionAsync(
+                    {
+                        accuracy: Location.Accuracy.Balanced,
+                        timeInterval: 4000,
+                        distanceInterval: 8,
+                    },
+                    (loc) => {
+                        const { latitude, longitude } = loc.coords;
+                        userLocRef.current = { latitude, longitude };
+                        setUserLoc({ latitude, longitude });
+                        if (webviewReadyRef.current) {
+                            sendUserLocToMap(latitude, longitude, false);
+                        }
+                    }
+                );
+            } catch (err) {
+                console.error('Error watching location:', err);
+            }
+        };
+
+        startWatching();
+
+        return () => {
+            if (subscription) {
+                subscription.remove();
+            }
+        };
+    }, [sendUserLocToMap]);
+
+    // Ref to track selected marker for use in handleWebMessage without stale closure
+    const selectedMarkerRef = useRef(selectedMarker);
+    useEffect(() => {
+        selectedMarkerRef.current = selectedMarker;
+    }, [selectedMarker]);
+
+    // Handle incoming messages from OSM Map Webview
+    const handleWebMessage = useCallback((event: any) => {
+        try {
+            const data = JSON.parse(event.nativeEvent.data);
+            if (data.type === 'ready') {
+                webviewReadyRef.current = true;
+                // Use ref so we always have the latest coords even if state hasn't flushed
+                const loc = userLocRef.current;
+                if (loc && mapRef.current) {
+                    // Small delay to ensure Leaflet map is fully initialized
+                    setTimeout(() => {
+                        sendUserLocToMap(loc.latitude, loc.longitude, true);
+                    }, 300);
+                }
+                const marker = selectedMarkerRef.current;
+                if (marker && mapRef.current) {
+                    setTimeout(() => {
+                        mapRef.current?.postMessage(JSON.stringify({
+                            type: 'updateSelectedMarker',
+                            marker,
+                        }));
+                    }, 300);
+                }
+            } else if (data.type === 'onRegionChangeComplete') {
+                const mockRegion: Region = {
+                    latitude: data.latitude,
+                    longitude: data.longitude,
+                    latitudeDelta: data.latitudeDelta,
+                    longitudeDelta: data.longitudeDelta,
+                };
+                handleRegionChangeComplete(mockRegion);
+            } else if (data.type === 'requestLocation') {
+                handleDetectCurrentLocation();
+            }
+        } catch (err) {
+            console.error('Web message error:', err);
+        }
+    }, [sendUserLocToMap, handleRegionChangeComplete, handleDetectCurrentLocation]);
+
+    // Send marker updates to WebView
+    useEffect(() => {
+        if (mapRef.current) {
+            mapRef.current.postMessage(JSON.stringify({
+                type: 'updateSelectedMarker',
+                marker: selectedMarker,
+            }));
+        }
+    }, [selectedMarker]);
 
     // ── Picking mode ──────────────────────────────────────────────────────────
     const enterPickingMode = async (fullscreen = false) => {
@@ -212,7 +574,7 @@ export default function LocationScreen() {
             longitudeDelta: 0.012,
         };
         regionRef.current = r;
-        mapRef.current?.animateToRegion(r, 600);
+        animateToRegion(r);
         setPinAddress(profile.address);
         enterPickingMode();  // ✅ modal opens only when user taps "Confirm this Location"
     };
@@ -280,7 +642,7 @@ export default function LocationScreen() {
             longitudeDelta: 0.012,
         };
         regionRef.current = r;
-        mapRef.current?.animateToRegion(r, 600);
+        animateToRegion(r);
 
         const marker = {
             latitude: Number(profile.latitude),   // ✅ force number, not string
@@ -305,57 +667,16 @@ export default function LocationScreen() {
 
             {/* ── MAP ──────────────────────────────────────────────────────── */}
             <Animated.View style={[styles.mapWrapper, { height: mapHeightAnim }]}>
-                <MapView
+                <WebView
                     ref={mapRef}
-                    style={StyleSheet.absoluteFillObject}
-                    provider={PROVIDER_DEFAULT}
-                    // ✅ KEY FIX: use initialRegion only, never pass `region` prop
-                    // This makes it uncontrolled — no more jitter
-                    initialRegion={DEFAULT_REGION}
-                    onRegionChangeComplete={handleRegionChangeComplete}
-                    showsUserLocation
-                    showsMyLocationButton={false}
-                    showsCompass={false}
-                    rotateEnabled={false}
-                >
-                    {/* Your real marker */}
-                    {selectedMarker && (
-                        <Marker
-                            coordinate={{
-                                latitude: selectedMarker.latitude,
-                                longitude: selectedMarker.longitude,
-                            }}
-                            tracksViewChanges={true}   // ✅ Changed to true
-                            anchor={{ x: 0.5, y: 1 }}  // ✅ Pointer tip sits on coordinate
-                        >
-                            <View style={styles.markerWrapper}>
-                                <View style={[
-                                    styles.markerBubble,
-                                    {
-                                        backgroundColor: TYPE_META[selectedMarker.type].bg,
-                                        borderColor: TYPE_META[selectedMarker.type].color,
-                                    },
-                                ]}>
-                                    <Ionicons
-                                        name={TYPE_META[selectedMarker.type].icon as any}
-                                        size={14}
-                                        color={TYPE_META[selectedMarker.type].color}
-                                    />
-                                    <Text style={[
-                                        styles.markerLabel,
-                                        { color: TYPE_META[selectedMarker.type].color },
-                                    ]}>
-                                        {/* {selectedMarker.label} */}
-                                    </Text>
-                                </View>
-                                <View style={[
-                                    styles.markerPointer,
-                                    { borderTopColor: TYPE_META[selectedMarker.type].color },
-                                ]} />
-                            </View>
-                        </Marker>
-                    )}
-                </MapView>
+                    style={StyleSheet.absoluteFill}
+                    originWhitelist={['*']}
+                    source={{ html: LEAFLET_HTML }}
+                    onMessage={handleWebMessage}
+                    scrollEnabled={true}
+                    domStorageEnabled={true}
+                    javaScriptEnabled={true}
+                />
 
                 {/* Fixed centre pin — only visible in picking/fullscreen */}
                 {isPickingOrFull && (
@@ -448,7 +769,7 @@ export default function LocationScreen() {
                             if (mode === 'picking') {
                                 exitPickingMode();
                             } else if (!isOnboarding) {
-                                router.back();
+                                router.replace('/(customer)/account' as any);
                             }
                         }}
                         activeOpacity={0.8}
@@ -478,7 +799,26 @@ export default function LocationScreen() {
                         )}
                     </View>
 
-                    <View style={{ width: 38 }} />
+                    {isOnboarding && mode !== 'picking' ? (
+                        <TouchableOpacity
+                            style={styles.headerDoneBtn}
+                            onPress={() => {
+                                if (profiles.length > 0) {
+                                    router.replace('/(customer)/account' as any);
+                                } else {
+                                    Alert.alert(
+                                        'Location Required',
+                                        'Please save at least one delivery location before tapping Done.'
+                                    );
+                                }
+                            }}
+                            activeOpacity={0.8}
+                        >
+                            <Text style={styles.headerDoneBtnText}>Done</Text>
+                        </TouchableOpacity>
+                    ) : (
+                        <View style={{ width: 38 }} />
+                    )}
                 </View>
             )}
 
@@ -880,6 +1220,14 @@ const styles = StyleSheet.create({
         width: 38, height: 38, borderRadius: Radius.sm,
         backgroundColor: Colors.bg, alignItems: 'center', justifyContent: 'center',
         borderWidth: 1, borderColor: Colors.border,
+    },
+    headerDoneBtn: {
+        height: 38, paddingHorizontal: 14, borderRadius: Radius.md,
+        backgroundColor: Colors.primary, alignItems: 'center', justifyContent: 'center',
+        ...Shadow.sm,
+    },
+    headerDoneBtnText: {
+        ...Typography.button, fontSize: 13, color: '#fff', fontWeight: '700',
     },
     headerCenter: { flex: 1, alignItems: 'center', gap: 2 },
     headerTitle: { ...Typography.h3, color: Colors.textPrimary },

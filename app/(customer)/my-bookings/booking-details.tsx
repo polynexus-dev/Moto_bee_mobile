@@ -4,6 +4,7 @@ import {
     TouchableOpacity, StatusBar,
 } from 'react-native';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Booking, BookingStatus } from '../../../types';
 import { Colors, Typography, Spacing, Radius, Shadow } from '../../../constants/theme';
@@ -68,6 +69,7 @@ function DetailRow({
 }
 
 export default function BookingDetailsScreen() {
+    const insets = useSafeAreaInsets();
     const router = useRouter();
     const { booking: raw } = useLocalSearchParams<{ booking: string }>();
     const booking: Booking = JSON.parse(raw ?? '{}');
@@ -81,7 +83,7 @@ export default function BookingDetailsScreen() {
 
             <View style={s.container}>
                 {/* ── Header ─────────────────────────────────────────────── */}
-                <View style={s.header}>
+                <View style={[s.header, { paddingTop: Math.max(insets.top + Spacing.xs, Spacing.md) }]}>
                     {/* <TouchableOpacity style={s.backBtn} onPress={() => router.push("/(customer)/my-bookings")}> */}
                     <TouchableOpacity
                         style={s.backBtn}
@@ -207,7 +209,7 @@ const s = StyleSheet.create({
     header: {
         flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
         backgroundColor: Colors.surface, paddingHorizontal: Spacing.md,
-        paddingTop: 52, paddingBottom: Spacing.md,
+        paddingBottom: Spacing.md,
         borderBottomWidth: 1, borderBottomColor: Colors.borderLight,
     },
     backBtn: {
