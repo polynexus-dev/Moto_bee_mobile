@@ -77,7 +77,7 @@ function AuthGate() {
       router.replace('/(customer)/home' as any);
     }
 
-  }, [isHydrated, navigationReady, token, user, locationHydrated, profiles]);
+  }, [isHydrated, navigationReady, token, user, locationHydrated, profiles, segments]);
 
   // Spinner while location profiles load
   if (token && user?.role !== 'owner' && !locationHydrated) {

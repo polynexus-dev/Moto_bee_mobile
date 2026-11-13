@@ -9,6 +9,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Location from 'expo-location';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useAuthStore } from '../../store/authStore';
+import { useLocationStore } from '../../store/locationStore';
 import { Colors, Typography, Spacing, Radius, Shadow } from '../../constants/theme';
 import { getMyVehicles } from '../../utils/services/vehicleService';
 
@@ -117,8 +118,11 @@ export default function HomeScreen() {
     const user = useAuthStore((s) => s.user);
     const router = useRouter();
 
-    const [locationText, setLocationText] = useState('Fetching location...');
-    const [locLoading, setLocLoading] = useState(true);
+    const { activeProfile } = useLocationStore();
+    const [locationText, setLocationText] = useState(
+        activeProfile?.address || activeProfile?.label || 'Fetching location...'
+    );
+    const [locLoading, setLocLoading] = useState(!activeProfile?.address && !activeProfile?.label);
     const [searchQuery, setSearchQuery] = useState('');
     const [suggestions, setSuggestions] = useState<string[]>([]);
     const [showVehiclePrompt, setShowVehiclePrompt] = useState(false);
@@ -128,24 +132,57 @@ export default function HomeScreen() {
 
     // ── Location ──────────────────────────────────────────────────────────────
     useEffect(() => {
-        (async () => {
-            const { status } = await Location.requestForegroundPermissionsAsync();
-            if (status !== 'granted') {
-                setLocationText('Location unavailable');
-                setLocLoading(false);
-                return;
-            }
-            const loc = await Location.getCurrentPositionAsync({});
-            const [place] = await Location.reverseGeocodeAsync(loc.coords);
-            if (place) {
-                const parts = [place.street, place.district ?? place.subregion, place.city].filter(Boolean);
-                setLocationText(parts.join(', '));
-            } else {
-                setLocationText('Location found');
-            }
+        if (activeProfile?.address || activeProfile?.label) {
+            setLocationText(activeProfile.address || activeProfile.label);
             setLocLoading(false);
+            return;
+        }
+
+        (async () => {
+            try {
+                const { status } = await Location.getForegroundPermissionsAsync();
+                if (status !== 'granted') {
+                    const req = await Location.requestForegroundPermissionsAsync();
+                    if (req.status !== 'granted') {
+                        setLocationText('Location unavailable');
+                        setLocLoading(false);
+                        return;
+                    }
+                }
+
+                // Try cached location first (<15ms)
+                let coords: { latitude: number; longitude: number } | null = null;
+                const lastKnown = await Location.getLastKnownPositionAsync();
+                if (lastKnown?.coords) {
+                    coords = lastKnown.coords;
+                } else {
+                    const quickLoc = await Promise.race([
+                        Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }),
+                        new Promise<null>((r) => setTimeout(() => r(null), 3000)),
+                    ]);
+                    if (quickLoc && 'coords' in quickLoc && quickLoc.coords) {
+                        coords = quickLoc.coords;
+                    }
+                }
+
+                if (coords) {
+                    const [place] = await Location.reverseGeocodeAsync(coords);
+                    if (place) {
+                        const parts = [place.street, place.district ?? place.subregion, place.city].filter(Boolean);
+                        setLocationText(parts.join(', '));
+                    } else {
+                        setLocationText('Location found');
+                    }
+                } else {
+                    setLocationText('Location unavailable');
+                }
+            } catch {
+                setLocationText('Location unavailable');
+            } finally {
+                setLocLoading(false);
+            }
         })();
-    }, []);
+    }, [activeProfile?.address, activeProfile?.label]);
 
     // ── Vehicle prompt check ──────────────────────────────────────────────────
     useEffect(() => { checkVehicles(); }, []);

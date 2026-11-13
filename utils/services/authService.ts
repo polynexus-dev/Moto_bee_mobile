@@ -1,4 +1,4 @@
-import * as SecureStore from 'expo-secure-store';
+import { secureStorage } from '../secureStorage';
 import api from '../api';
 import { AppUser } from '../../types';
 
@@ -20,26 +20,26 @@ export async function saveAuthData(
     user: AppUser
 ): Promise<void> {
     await Promise.all([
-        SecureStore.setItemAsync(ACCESS_KEY, access),
-        SecureStore.setItemAsync(REFRESH_KEY, refresh),
-        SecureStore.setItemAsync(USER_KEY, JSON.stringify(user)),
+        secureStorage.setItem(ACCESS_KEY, access),
+        secureStorage.setItem(REFRESH_KEY, refresh),
+        secureStorage.setItem(USER_KEY, JSON.stringify(user)),
     ]);
 }
 
 export async function getAuthToken(): Promise<string | null> {
-    return SecureStore.getItemAsync(ACCESS_KEY);
+    return secureStorage.getItem(ACCESS_KEY);
 }
 
 export async function getStoredUser(): Promise<AppUser | null> {
-    const raw = await SecureStore.getItemAsync(USER_KEY);
+    const raw = await secureStorage.getItem(USER_KEY);
     return raw ? (JSON.parse(raw) as AppUser) : null;
 }
 
 export async function clearAuthData(): Promise<void> {
     await Promise.all([
-        SecureStore.deleteItemAsync(ACCESS_KEY),
-        SecureStore.deleteItemAsync(REFRESH_KEY),
-        SecureStore.deleteItemAsync(USER_KEY),
+        secureStorage.deleteItem(ACCESS_KEY),
+        secureStorage.deleteItem(REFRESH_KEY),
+        secureStorage.deleteItem(USER_KEY),
     ]);
 }
 
@@ -47,7 +47,7 @@ export async function updateStoredUser(partial: Partial<AppUser>): Promise<AppUs
     const current = await getStoredUser();
     if (!current) return null;
     const updated = { ...current, ...partial };
-    await SecureStore.setItemAsync(USER_KEY, JSON.stringify(updated));
+    await secureStorage.setItem(USER_KEY, JSON.stringify(updated));
     return updated;
 }
 
@@ -96,7 +96,7 @@ export async function registerUser(
 // ── Logout ────────────────────────────────────────────────────────────────────
 export async function logoutUser(): Promise<void> {
     try {
-        const refresh = await SecureStore.getItemAsync(REFRESH_KEY);
+        const refresh = await secureStorage.getItem(REFRESH_KEY);
         if (refresh) {
             await api.post('/auth/logout/', { refresh });
         }

@@ -1,7 +1,7 @@
 // // utils/api.ts
 
 import axios from 'axios';
-import * as SecureStore from 'expo-secure-store';
+import { secureStorage } from './secureStorage';
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 const BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL;
@@ -22,7 +22,7 @@ const api = axios.create({
 // ─── Request interceptor — attach JWT ────────────────────────────────────────
 api.interceptors.request.use(
     async (config) => {
-        const token = await SecureStore.getItemAsync('access_token');
+        const token = await secureStorage.getItem('access_token');
         if (token) config.headers.Authorization = `Bearer ${token}`;
         return config;
     },
@@ -65,7 +65,7 @@ api.interceptors.response.use(
         isRefreshing = true;
 
         try {
-            const refresh = await SecureStore.getItemAsync('refresh_token');
+            const refresh = await secureStorage.getItem('refresh_token');
             if (!refresh) throw new Error('No refresh token stored');
 
             const { data } = await axios.post(
@@ -74,11 +74,19 @@ api.interceptors.response.use(
                 { headers: { 'Content-Type': 'application/json' } }
             );
 
-            await SecureStore.setItemAsync('access_token', data.access);
+            await secureStorage.setItem('access_token', data.access);
 
             if (data.refresh) {
-                await SecureStore.setItemAsync('refresh_token', data.refresh);
+                await secureStorage.setItem('refresh_token', data.refresh);
             }
+
+            try {
+                const { useAuthStore } = require('../store/authStore');
+                const currentUser = useAuthStore.getState().user;
+                if (currentUser) {
+                    useAuthStore.getState().setAuth(data.access, currentUser);
+                }
+            } catch {}
 
             original.headers.Authorization = `Bearer ${data.access}`;
             processQueue(null, data.access);
@@ -86,9 +94,9 @@ api.interceptors.response.use(
 
         } catch (refreshError) {
             processQueue(refreshError, null);
-            await SecureStore.deleteItemAsync('access_token');
-            await SecureStore.deleteItemAsync('refresh_token');
-            await SecureStore.deleteItemAsync('auth_user');
+            await secureStorage.deleteItem('access_token');
+            await secureStorage.deleteItem('refresh_token');
+            await secureStorage.deleteItem('auth_user');
             try {
                 const { useAuthStore } = require('../store/authStore');
                 useAuthStore.getState().logout();

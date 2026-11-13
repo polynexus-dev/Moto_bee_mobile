@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import {
     View, FlatList, Text, StyleSheet,
     ActivityIndicator, TouchableOpacity, TextInput
@@ -14,6 +14,11 @@ import GarageCard from '../../../components/GarageCard';
 import Toast from '../../../components/Toast';
 import { useToast } from '../../../hooks/useToast';
 import { Colors, Typography, Spacing, Radius, Shadow } from '../../../constants/theme';
+import { useLocationStore } from '../../../store/locationStore';
+
+// In-memory cache for instant subsequent tab switches
+let cachedGarages: Garage[] = [];
+let cachedUserCoords: { latitude: number; longitude: number } | null = null;
 
 function garageHasService(g: Garage, targetService: string): boolean {
     if (!targetService) return true;
@@ -42,16 +47,71 @@ function garageHasService(g: Garage, targetService: string): boolean {
     return allServices.some(s => keywords.some(k => s.includes(k)));
 }
 
+async function getFastUserLocation(profileCoords?: { latitude: number; longitude: number } | null): Promise<{ latitude: number; longitude: number } | null> {
+    // 1. Instant: Active delivery profile coordinates (0ms)
+    if (profileCoords && profileCoords.latitude && profileCoords.longitude) {
+        cachedUserCoords = profileCoords;
+        return profileCoords;
+    }
+
+    // 2. Instant: Previously cached coordinates (0ms)
+    if (cachedUserCoords) {
+        return cachedUserCoords;
+    }
+
+    try {
+        const { status } = await Location.getForegroundPermissionsAsync();
+        if (status !== 'granted') {
+            const req = await Location.requestForegroundPermissionsAsync();
+            if (req.status !== 'granted') return null;
+        }
+
+        // 3. Fast OS cached position (<15ms)
+        const lastKnown = await Location.getLastKnownPositionAsync();
+        if (lastKnown?.coords) {
+            cachedUserCoords = { latitude: lastKnown.coords.latitude, longitude: lastKnown.coords.longitude };
+            return cachedUserCoords;
+        }
+
+        // 4. Quick GPS with balanced accuracy & 2.5s timeout
+        const pos = await Promise.race([
+            Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }),
+            new Promise<null>((resolve) => setTimeout(() => resolve(null), 2500)),
+        ]);
+
+        if (pos && 'coords' in pos && pos.coords) {
+            cachedUserCoords = { latitude: pos.coords.latitude, longitude: pos.coords.longitude };
+            return cachedUserCoords;
+        }
+    } catch {
+        // Fallback silently if location is unavailable
+    }
+
+    return null;
+}
+
 export default function NearbyGaragesScreen() {
     const { service: serviceParam } = useLocalSearchParams<{ service?: string }>();
-    const [garages, setGarages] = useState<Garage[]>([]);
-    const [filtered, setFiltered] = useState<Garage[]>([]);
-    const [loading, setLoading] = useState(true);
+    const { activeProfile } = useLocationStore();
+
+    // Initialize with cached data if available for instant display
+    const [garages, setGarages] = useState<Garage[]>(cachedGarages);
+    const [filtered, setFiltered] = useState<Garage[]>(() => {
+        if (!cachedGarages.length) return [];
+        let res = cachedGarages;
+        if (serviceParam) res = res.filter(g => garageHasService(g, serviceParam));
+        return res;
+    });
+
+    const [loading, setLoading] = useState(cachedGarages.length === 0);
+    const [refreshing, setRefreshing] = useState(false);
     const [search, setSearch] = useState('');
     const insets = useSafeAreaInsets();
     const [activeService, setActiveService] = useState<string | null>(serviceParam || null);
     const { toast, showToast, hideToast } = useToast();
     const router = useRouter();
+
+    const isInitialMount = useRef(true);
 
     useEffect(() => {
         if (serviceParam) {
@@ -59,73 +119,85 @@ export default function NearbyGaragesScreen() {
         }
     }, [serviceParam]);
 
-    useFocusEffect(useCallback(() => { load(); }, [activeService]));
+    // Apply activeService filter
+    const applyFilters = (baseList: Garage[], query: string, service: string | null) => {
+        let res = baseList;
+        if (service) {
+            res = res.filter(g => garageHasService(g, service));
+        }
+        if (query.trim()) {
+            const q = query.toLowerCase();
+            res = res.filter(g =>
+                g.name.toLowerCase().includes(q) ||
+                g.address.toLowerCase().includes(q)
+            );
+        }
+        return res;
+    };
 
-    const load = async () => {
-        setLoading(true);
+    const load = async (isPullToRefresh = false) => {
+        if (isPullToRefresh) {
+            setRefreshing(true);
+        } else if (garages.length === 0) {
+            setLoading(true);
+        }
+
         try {
-            const { status } = await Location.requestForegroundPermissionsAsync();
-            const all = await getAllGarages();
+            const profileCoords = activeProfile?.latitude && activeProfile?.longitude
+                ? { latitude: activeProfile.latitude, longitude: activeProfile.longitude }
+                : null;
+
+            // Fetch garages and location in PARALLEL
+            const [all, coords] = await Promise.all([
+                getAllGarages(),
+                getFastUserLocation(profileCoords),
+            ]);
 
             let resultList = all;
-            if (status === 'granted') {
-                const loc = await Location.getCurrentPositionAsync({});
-                const { latitude, longitude } = loc.coords;
+            if (coords) {
                 resultList = all
                     .map((g) => ({
                         ...g,
                         distanceKm: g.latitude != null && g.longitude != null
-                            ? getDistanceKm(latitude, longitude, g.latitude, g.longitude)
+                            ? getDistanceKm(coords.latitude, coords.longitude, g.latitude, g.longitude)
                             : undefined,
                     }))
                     .sort((a, b) => (a.distanceKm ?? 99) - (b.distanceKm ?? 99));
             }
 
+            cachedGarages = resultList;
             setGarages(resultList);
-
-            let res = resultList;
-            if (activeService) {
-                res = res.filter(g => garageHasService(g, activeService));
-            }
-            if (search.trim()) {
-                res = res.filter(g =>
-                    g.name.toLowerCase().includes(search.toLowerCase()) ||
-                    g.address.toLowerCase().includes(search.toLowerCase())
-                );
-            }
-            setFiltered(res);
+            setFiltered(applyFilters(resultList, search, activeService));
         } catch (e: any) {
-            showToast(e?.response?.data?.detail ?? 'Failed to load garages.', 'error');
+            if (garages.length === 0) {
+                showToast(e?.response?.data?.detail ?? 'Failed to load garages.', 'error');
+            }
         } finally {
             setLoading(false);
+            setRefreshing(false);
         }
     };
 
+    useFocusEffect(
+        useCallback(() => {
+            // If we have cached garages on initial mount, do a silent background refresh
+            if (isInitialMount.current && cachedGarages.length > 0) {
+                isInitialMount.current = false;
+                load(false);
+                return;
+            }
+            load(false);
+        }, [activeService, activeProfile?.latitude, activeProfile?.longitude])
+    );
+
     const handleSearch = (text: string) => {
         setSearch(text);
-        let res = garages;
-        if (activeService) {
-            res = res.filter(g => garageHasService(g, activeService));
-        }
-        if (text.trim()) {
-            res = res.filter((g) =>
-                g.name.toLowerCase().includes(text.toLowerCase()) ||
-                g.address.toLowerCase().includes(text.toLowerCase())
-            );
-        }
-        setFiltered(res);
+        setFiltered(applyFilters(garages, text, activeService));
     };
 
     const clearServiceFilter = () => {
         setActiveService(null);
-        let res = garages;
-        if (search.trim()) {
-            res = res.filter((g) =>
-                g.name.toLowerCase().includes(search.toLowerCase()) ||
-                g.address.toLowerCase().includes(search.toLowerCase())
-            );
-        }
-        setFiltered(res);
+        setFiltered(applyFilters(garages, search, null));
     };
 
     return (
@@ -173,7 +245,7 @@ export default function NearbyGaragesScreen() {
             {/* List */}
             <FlatList
                 data={filtered}
-                keyExtractor={(g) => g.id}
+                keyExtractor={(g) => String(g.id)}
                 renderItem={({ item }) => (
                     <GarageCard
                         garage={item}
@@ -207,8 +279,8 @@ export default function NearbyGaragesScreen() {
                         </View>
                     )
                 }
-                onRefresh={load}
-                refreshing={loading}
+                onRefresh={() => load(true)}
+                refreshing={refreshing}
             />
 
             <Toast
